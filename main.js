@@ -35,6 +35,7 @@ const LANE_HALF = 15;       // 雪道半宽
 const X_START = -700;
 const X_END = 6400;
 const DIST_FULL = 2600;     // 天色走到极光所需距离
+const CH_SPAN = [900, 1700, 2500];   // 三章的分界距离
 
 function terrainY(x) {
   return Math.sin(x * 0.0105) * 13.5
@@ -314,6 +315,7 @@ function buildTrack() {
 buildTrack();
 
 // ===================== 峡谷两壁 =====================
+const canyonMats = [];
 function buildCanyonWall(sign) {
   const dx = 8;
   const zs = [0, 5, 12, 22, 40];
@@ -348,13 +350,16 @@ function buildCanyonWall(sign) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
-  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true }));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  canyonMats.push(mat);
+  const mesh = new THREE.Mesh(geo, mat);
   scene.add(mesh);
 }
 buildCanyonWall(1);
 buildCanyonWall(-1);
 
 // ===================== 路边剪影树 =====================
+let treeMat = null;
 (function buildTrees() {
   const count = 300;
   const trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 1, 5);
@@ -363,6 +368,7 @@ buildCanyonWall(-1);
   crownGeo.translate(0, 0.5, 0);
 
   const mat = new THREE.MeshBasicMaterial({ color: 0x151a2e });
+  treeMat = mat;
   const trunks = new THREE.InstancedMesh(trunkGeo, mat, count);
   const crowns = new THREE.InstancedMesh(crownGeo, mat, count);
 
@@ -411,12 +417,15 @@ function prnd() {
   let sinceRamp = 0;
   while (x < X_END - 620) {
     const prog = Math.min(1, x / 2800);
-    const gap = 136 - prog * 80;              // 136m → 56m，越滑越密
-    x += gap * (0.72 + prnd() * 0.66);
+    const ch = x < CH_SPAN[0] ? 0 : x < CH_SPAN[1] ? 1 : 2;
+    // 三章不同的密度：一疏一密一险
+    const base = ch === 0 ? 164 - prog * 24 : ch === 1 ? 94 - prog * 18 : 126 - prog * 24;
+    x += base * (0.72 + prnd() * 0.66);
     sinceRamp++;
 
-    // 每 3~4 组来一个跳台
-    if (sinceRamp >= 3 && prnd() < 0.52) {
+    // 每 3~4 组来一个跳台（第一章跳台多，第二章少见）
+    const rampP = ch === 0 ? 0.72 : ch === 1 ? 0.40 : 0.58;
+    if (sinceRamp >= 3 && prnd() < rampP) {
       ramps.push({
         x,
         z: (prnd() - 0.5) * (LANE_HALF * 1.0),
@@ -429,7 +438,8 @@ function prnd() {
       continue;
     }
 
-    const double = prnd() < 0.30 + prog * 0.28;
+    const doubleP = ch === 0 ? 0.14 : ch === 1 ? 0.58 : 0.32;
+    const double = prnd() < doubleP + prog * 0.10;
     const z0 = (prnd() - 0.5) * (LANE_HALF * 1.7);
     for (let k = 0; k < (double ? 2 : 1); k++) {
       const kind = prnd() < 0.62 ? 'rock' : 'stump';
@@ -540,6 +550,193 @@ function prnd() {
     scene.add(meshDeck, meshEdge);
   }
 })();
+
+// ===================== 章节视觉层（三章一眼不同） =====================
+// 第1章 落日：金色浮尘 + 暖调雪面
+// 第2章 星夜：路旁成排的星灯 + 冷蓝
+// 第3章 冰峡：冰晶柱 + 结冰路段 + 极光垂帘
+const CH_LOOK = [
+  { skyA: 0.03, skyB: 0.27, tint: 0xffe9cf, name: '落日的第一道坡' },
+  { skyA: 0.44, skyB: 0.72, tint: 0xc9d6ff, name: '星星落下的时候' },
+  { skyA: 0.83, skyB: 1.00, tint: 0xd8fff4, name: '极光之下' },
+];
+let curChapter = 0;
+const cTint = new THREE.Color();
+
+// ---- 第1章：金色浮尘 ----
+const emberN = 380;
+const emberGeo = new THREE.BufferGeometry();
+const emberPos = new Float32Array(emberN * 3);
+const emberSeed = new Float32Array(emberN * 3);
+for (let i = 0; i < emberN; i++) {
+  const x = -30 + Math.random() * 1000;
+  const z = (Math.random() - 0.5) * 46;
+  emberPos[i * 3] = x;
+  emberPos[i * 3 + 1] = terrainY(x) + 0.6 + Math.random() * 11;
+  emberPos[i * 3 + 2] = z;
+  emberSeed[i * 3] = Math.random() * 6.28;
+  emberSeed[i * 3 + 1] = 0.35 + Math.random() * 0.9;
+  emberSeed[i * 3 + 2] = Math.random() * 6.28;
+}
+emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+const emberMat = new THREE.PointsMaterial({
+  size: 0.62, color: 0xffcf8a, map: GLOW, transparent: true, opacity: 0.85,
+  depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+});
+const emberPts = new THREE.Points(emberGeo, emberMat);
+emberPts.frustumCulled = false;
+scene.add(emberPts);
+
+// ---- 第2章：星灯（细杆 + 灯） ----
+const lampN = 66;
+const lampX = [], lampZ = [];
+for (let i = 0; i < lampN; i++) {
+  const x = 930 + Math.floor(i / 2) * 26 + (i % 2) * 3;
+  const side = i % 2 === 0 ? 1 : -1;
+  lampX.push(x);
+  lampZ.push(side * (LANE_HALF + 1.6));
+}
+{
+  const gPole = new THREE.CylinderGeometry(0.07, 0.10, 1, 5);
+  gPole.translate(0, 0.5, 0);
+  const poleMat = new THREE.MeshBasicMaterial({ color: 0x1a1f38 });
+  const poles = new THREE.InstancedMesh(gPole, poleMat, lampN);
+  const gBall = new THREE.SphereGeometry(0.26, 8, 6);
+  const ballMat = new THREE.MeshBasicMaterial({ color: 0xdff2ff });
+  const balls = new THREE.InstancedMesh(gBall, ballMat, lampN);
+  const dm = new THREE.Object3D();
+  for (let i = 0; i < lampN; i++) {
+    const y = terrainY(lampX[i]) + bank(lampZ[i]);
+    dm.position.set(lampX[i], y, lampZ[i]);
+    dm.rotation.set(0, 0, 0);
+    dm.scale.set(1, 3.0, 1);
+    dm.updateMatrix();
+    poles.setMatrixAt(i, dm.matrix);
+    dm.position.set(lampX[i], y + 3.0, lampZ[i]);
+    dm.scale.setScalar(1);
+    dm.updateMatrix();
+    balls.setMatrixAt(i, dm.matrix);
+  }
+  poles.instanceMatrix.needsUpdate = true;
+  balls.instanceMatrix.needsUpdate = true;
+  scene.add(poles, balls);
+}
+// 灯的光晕
+const lampGlowGeo = new THREE.BufferGeometry();
+{
+  const p = new Float32Array(lampN * 3);
+  for (let i = 0; i < lampN; i++) {
+    p[i * 3] = lampX[i];
+    p[i * 3 + 1] = terrainY(lampX[i]) + bank(lampZ[i]) + 3.0;
+    p[i * 3 + 2] = lampZ[i];
+  }
+  lampGlowGeo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+}
+const lampGlowMat = new THREE.PointsMaterial({
+  size: 2.4, color: 0x9fe8ff, map: GLOW, transparent: true, opacity: 0.75,
+  depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+});
+const lampGlowPts = new THREE.Points(lampGlowGeo, lampGlowMat);
+lampGlowPts.frustumCulled = false;
+scene.add(lampGlowPts);
+
+// ---- 第3章：冰晶柱 ----
+(function buildIceSpires() {
+  const N = 120;
+  const g = new THREE.OctahedronGeometry(1, 0);
+  const mat = new THREE.MeshBasicMaterial({ color: 0x9ee8e4, transparent: true, opacity: 0.62 });
+  const mesh = new THREE.InstancedMesh(g, mat, N);
+  const dm = new THREE.Object3D();
+  for (let i = 0; i < N; i++) {
+    const x = 1720 + Math.random() * 800;
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const z = side * (LANE_HALF + 1.5 + Math.random() * 13);
+    const y = canyonY(x, z);
+    const h = 3.2 + Math.random() * 6.5;
+    dm.position.set(x, y + h * 0.42, z);
+    dm.rotation.set((Math.random() - 0.5) * 0.28, Math.random() * 6.28, (Math.random() - 0.5) * 0.28);
+    dm.scale.set(0.7 + Math.random() * 1.5, h * 0.6, 0.7 + Math.random() * 1.5);
+    dm.updateMatrix();
+    mesh.setMatrixAt(i, dm.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  scene.add(mesh);
+})();
+
+// ---- 第3章：极光垂帘（高空光点） ----
+const veilN = 200;
+const veilGeo = new THREE.BufferGeometry();
+{
+  const p = new Float32Array(veilN * 3);
+  for (let i = 0; i < veilN; i++) {
+    p[i * 3] = 1700 + Math.random() * 850;
+    p[i * 3 + 1] = 18 + Math.random() * 30;
+    p[i * 3 + 2] = (Math.random() - 0.5) * 130;
+  }
+  veilGeo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+}
+const veilMat = new THREE.PointsMaterial({
+  size: 1.9, color: 0x8fffdc, map: GLOW, transparent: true, opacity: 0.5,
+  depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+});
+const veilPts = new THREE.Points(veilGeo, veilMat);
+veilPts.frustumCulled = false;
+scene.add(veilPts);
+
+// ---- 第3章：结冰路段 ----
+const iceZones = [];
+const iceZoneN = 5;
+(function planIce() {
+  for (let i = 0; i < iceZoneN; i++) {
+    const x0 = 1780 + i * 168 + prnd() * 40;
+    const len = 46 + prnd() * 34;
+    if (x0 + len > 2400) break;
+    iceZones.push({ x0, x1: x0 + len });
+  }
+  if (iceZones.length) {
+    const g = new THREE.BoxGeometry(1, 1, 1);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true, opacity: 0.34, depthWrite: false });
+    const mesh = new THREE.InstancedMesh(g, mat, iceZones.length);
+    const dm = new THREE.Object3D();
+    iceZones.forEach((z, i) => {
+      const cx = (z.x0 + z.x1) / 2;
+      dm.position.set(cx, terrainY(cx) + 0.16, 0);
+      dm.rotation.set(0, 0, 0);
+      dm.scale.set(z.x1 - z.x0, 0.12, LANE_HALF * 1.7);
+      dm.updateMatrix();
+      mesh.setMatrixAt(i, dm.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    scene.add(mesh);
+  }
+})();
+
+function inIce(x) {
+  for (const z of iceZones) if (x > z.x0 && x < z.x1) return true;
+  return false;
+}
+
+// 章节装饰动画
+function updateChapterDeco(dt, t) {
+  // 浮尘缓慢上浮
+  const ea = emberGeo.attributes.position.array;
+  for (let i = 0; i < emberN; i++) {
+    const ph = emberSeed[i * 3];
+    const sp = emberSeed[i * 3 + 1];
+    ea[i * 3 + 1] += sp * dt * 0.55;
+    ea[i * 3] += Math.sin(t * 0.6 + ph) * dt * 0.5;
+    const base = terrainY(ea[i * 3]) + 0.4;
+    if (ea[i * 3 + 1] > base + 15) ea[i * 3 + 1] = base;
+  }
+  emberGeo.attributes.position.needsUpdate = true;
+
+  // 星灯呼吸
+  lampGlowMat.opacity = 0.52 + 0.26 * (0.5 + 0.5 * Math.sin(t * 1.6));
+  lampGlowMat.size = 2.3 + 0.22 * Math.sin(t * 2.1);
+
+  // 极光垂帘飘动
+  veilMat.opacity = 0.32 + 0.24 * (0.5 + 0.5 * Math.sin(t * 0.9));
+}
 
 // ===================== 主角：小雪团（可爱向） =====================
 const skier = new THREE.Group();
@@ -1091,11 +1288,12 @@ const state = {
   dead: false,
   deadT: 0,
   squash: 0,
+  onIce: false,
   fx: { boost: 0, glide: 0, magnet: 0, invuln: 0, aurora: 0 },
   chapter: 0,
   chapterDone: false,
   arrived: false,
-  ava: { on: false, x: -80, gap: 48, startAt: 0, wait: 0, active: false, t: 0 },
+  ava: { on: false, x: -80, gap: 48, startAt: 0, wait: 0, active: false, t: 0, danger: 0, intro: 99 },
 };
 
 let obsCur = 0;
@@ -1112,21 +1310,63 @@ avaGroup.visible = false;
 scene.add(avaGroup);
 const avaPuffs = [];
 for (let i = 0; i < 62; i++) {
+  // 深蓝灰的翻滚云墙：普通混合，在亮雪地和暗天空里都看得见
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: GLOW, color: 0xffffff, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.4, fog: false,
+    map: GLOW, color: 0x272f4e, transparent: true,
+    opacity: 0.5, depthWrite: false, fog: false,
   }));
   sp.userData = {
-    dx: Math.pow(Math.random(), 0.7) * 58,
-    dy: Math.random() * 9.5,
-    dz: (Math.random() - 0.5) * 46,
-    sz: 3 + Math.random() * 9,
+    // 关键：让雪云向玩家前方溢出一段，否则第三人称镜头永远拍不到身后的雪崩
+    dx: -36 + Math.pow(Math.random(), 0.62) * 94,
+    dy: Math.pow(Math.random(), 0.85) * 23,
+    dz: (Math.random() - 0.5) * 116,
+    sz: 4 + Math.random() * 13,
     ph: Math.random() * 6.28,
     sp2: 0.6 + Math.random() * 0.9,
   };
   sp.scale.setScalar(sp.userData.sz);
   avaGroup.add(sp);
   avaPuffs.push(sp);
+}
+
+// 云墙上的雪尖（白色提亮）
+const avaTips = [];
+for (let i = 0; i < 44; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: GLOW, color: 0xe8f2ff, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7, fog: false,
+  }));
+  sp.userData = {
+    dx: -24 + Math.random() * 76,
+    dy: 5 + Math.random() * 16,
+    dz: (Math.random() - 0.5) * 84,
+    sz: 2.4 + Math.random() * 6,
+    ph: Math.random() * 6.28,
+    sp2: 0.6 + Math.random() * 0.9,
+  };
+  sp.scale.setScalar(sp.userData.sz);
+  avaGroup.add(sp);
+  avaTips.push(sp);
+}
+
+// 雪崩溢出的雪雾：飘到玩家前方的高空，让"身后有东西在追"这件事看得见
+const avaMist = [];
+for (let i = 0; i < 14; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: GLOW, color: 0xe6f3ff, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false,
+  }));
+  sp.userData = {
+    fx: 6 + Math.random() * 78,
+    fy: 3 + Math.random() * 17,
+    fz: (Math.random() - 0.5) * 86,
+    sz: 13 + Math.random() * 22,
+    ph: Math.random() * 6.28,
+  };
+  sp.scale.setScalar(sp.userData.sz);
+  sp.visible = false;
+  scene.add(sp);
+  avaMist.push(sp);
 }
 
 const camPos = new THREE.Vector3(-11, terrainY(0) + 6, 0);
@@ -1643,6 +1883,8 @@ const shopHintEl = document.getElementById('shopHint');
 const dTitleEl = document.getElementById('dTitle');
 const dEmEl = document.getElementById('dEm');
 const dGainEl = document.getElementById('dGain');
+const avaVeilEl = document.getElementById('avaVeil');
+const chapTagEl = document.getElementById('chapTag');
 const uiEl = document.getElementById('ui');
 const keysHintEl = document.getElementById('keysHint');
 const distEl = document.getElementById('dist');
@@ -1792,6 +2034,7 @@ function showTitle() {
   setScreen(helpEl, false);
   setScreen(menuEl, true);
   hideNarr();
+  setChapTag('');
   if (cutinEl.classList.contains('on')) cutinEl.classList.remove('on');
   resetRun();
   refreshMenu();
@@ -1936,6 +2179,12 @@ function showCutin(ch) {
   setTimeout(() => cutinEl.classList.remove('on'), 2600);
 }
 
+function setChapTag(txt) {
+  if (!chapTagEl) return;
+  chapTagEl.textContent = txt || '';
+  chapTagEl.classList.toggle('on', !!txt);
+}
+
 function startRun(mode, chapterIdx) {
   runMode = mode;
   runChapter = mode === 'story' ? (chapterIdx != null ? chapterIdx : save.chapter) : -1;
@@ -1965,11 +2214,15 @@ function startRun(mode, chapterIdx) {
   if (mode === 'story') {
     const ch = CHAPTERS[runChapter];
     showCutin(ch);
+    setChapTag('第 ' + (runChapter + 1) + ' 章　' + ch.name);
     storyPtr = 0;
     setTimeout(() => { if (ch.lines[0]) queueNarr(ch.lines[0].who, ch.lines[0].txt); }, 2300);
     storyPtr = 1;
   } else if (mode === 'avalanche') {
+    setChapTag('雪 崩 挑 战');
     showPop('雪 崩 来 了　别 停');
+  } else {
+    setChapTag('无 尽 滑 行');
   }
 
   state.started = true;
@@ -2021,7 +2274,22 @@ if (isTest) setTimeout(begin, 300);
       if (shot === 'shop') openShop();
       else if (shot === 'chapters') openChapters();
       else if (shot === 'play') startRun('story', 0);
+      else if (shot === 'ch2') startRun('story', 1);
+      else if (shot === 'ch3') startRun('story', 2);
       else if (shot === 'ava') startRun('avalanche');
+
+      const jumpX = parseFloat(new URLSearchParams(location.search).get('x') || '0');
+      if (jumpX > 0) {
+        state.x = jumpX;
+        state.prevX = jumpX;
+        state.distance = jumpX;
+        state.milestone = Math.floor(jumpX / 500);
+        state.y = terrainY(jumpX) + bank(state.z);
+        obsCur = 0;
+        rampCur = 0;
+        camPos.set(jumpX - 11, state.y + 6, 0);
+        camLook.set(jumpX + 14, state.y + 2, 0);
+      }
     } catch (err) {
       document.title = 'ERR: ' + err.message + ' | ' + String(err.stack || '').split('\n').slice(1, 3).join(' ~ ');
     }
@@ -2206,34 +2474,68 @@ function arrive(ch) {
 // ---------- 雪崩（粒子已在顶部构建） ----------
 function updateAvalanche(dt, t) {
   const A = state.ava;
-  if (!A.on || !state.started || state.dead || state.arrived) return;
+  if (!A.on || !state.started || state.dead || state.arrived) {
+    if (avaVeilEl) avaVeilEl.style.opacity = '0';
+    for (const m of avaMist) if (m.visible) m.visible = false;
+    return;
+  }
 
   if (!A.active) {
     if (runMode !== 'avalanche' && state.distance < A.startAt) { avaGroup.visible = false; return; }
     A.active = true;
     A.t = 0;
-    A.x = state.x - 68;
+    A.intro = 0;
+    A.x = state.x - 30;
     avaGroup.visible = true;
     showPop('雪 崩　来 了');
     flashScreen();
   }
   A.t += dt;
 
-  const want = (runMode === 'avalanche' ? 36 : 48) * Math.max(0.40, 1 - A.t * 0.011);
+  const want = (runMode === 'avalanche' ? 26 : 40) * Math.max(0.46, 1 - A.t * 0.009);
   const behind = state.x - A.x;
-  const err = Math.max(-20, Math.min(26, (behind - want) * 0.9));
+  const err = Math.max(-22, Math.min(30, (behind - want) * 0.95));
   A.x += (state.speed + err) * dt;
 
   const gy = terrainY(A.x);
   for (const p of avaPuffs) {
     const u = p.userData;
+    // 溢出到玩家前方的那部分粒子压暗一些，免得挡住路况
+    const front = u.dx > 8 ? 1 - Math.min(0.58, (u.dx - 8) / 96) : 1;
     p.position.set(
-      A.x - u.dx + Math.sin(t * u.sp2 * 2.2 + u.ph) * 2.4,
-      gy + u.dy + Math.sin(t * 1.7 + u.ph) * 1.2,
-      u.dz + Math.cos(t * 1.3 + u.ph) * 2.6
+      A.x + u.dx + Math.sin(t * u.sp2 * 2.0 + u.ph) * 3.2,
+      gy + u.dy + Math.sin(t * 1.5 + u.ph) * 1.6,
+      u.dz + Math.cos(t * 1.2 + u.ph) * 3.4
     );
-    p.material.opacity = 0.16 + 0.32 * (0.5 + 0.5 * Math.sin(t * 2.4 + u.ph));
-    p.scale.setScalar(u.sz * (1 + Math.sin(t * 1.9 + u.ph) * 0.12));
+    p.material.opacity = (0.42 + 0.30 * (0.5 + 0.5 * Math.sin(t * 2.2 + u.ph))) * front;
+    p.scale.setScalar(u.sz * (1 + Math.sin(t * 1.7 + u.ph) * 0.14));
+  }
+  for (const p of avaTips) {
+    const u = p.userData;
+    const front = u.dx > 8 ? 1 - Math.min(0.6, (u.dx - 8) / 96) : 1;
+    p.position.set(
+      A.x + u.dx + Math.sin(t * u.sp2 * 1.9 + u.ph) * 3,
+      gy + u.dy + Math.sin(t * 1.4 + u.ph) * 1.4,
+      u.dz + Math.cos(t * 1.1 + u.ph) * 3
+    );
+    p.material.opacity = (0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6 + u.ph))) * front;
+    p.scale.setScalar(u.sz * (1 + Math.sin(t * 1.8 + u.ph) * 0.16));
+  }
+
+  // 危险度 → 屏幕边缘泛白 + 前方雪雾 + 镜头抖
+  const danger = Math.max(0, Math.min(1, 1 - (behind - 6) / 34));
+  state.ava.danger = danger;
+  if (avaVeilEl) avaVeilEl.style.opacity = String(Math.min(1, danger * 0.92 + (runMode === 'avalanche' ? 0.10 : 0)));
+
+  for (const m of avaMist) {
+    const u = m.userData;
+    m.visible = true;
+    m.position.set(
+      state.x + u.fx + Math.sin(t * 0.5 + u.ph) * 4,
+      state.y + u.fy,
+      u.fz + Math.cos(t * 0.42 + u.ph) * 4
+    );
+    m.material.opacity = (0.06 + danger * 0.26) * (0.6 + 0.4 * Math.sin(t * 0.9 + u.ph));
   }
 
   if (behind < 6.5) crash('被 雪 埋 住 了');
@@ -2251,11 +2553,18 @@ function updateSkier(dt, t) {
 
   state.prevX = state.x;
 
+  // ---- 冰面：转向会打滑 ----
+  const onIce = !state.air && inIce(state.x);
+  if (onIce !== state.onIce) {
+    state.onIce = onIce;
+    if (onIce && state.started) showChip('冰 面 · 别 猛 打 方 向', '#9fe0ff', 2400);
+  }
+
   // ---- 转向 ----
   const steerIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-  state.steer += (steerIn - state.steer) * Math.min(1, dt * 9);
+  state.steer += (steerIn - state.steer) * Math.min(1, dt * (onIce ? 3.2 : 9));
   const targetVz = state.steer * (state.air ? 9 : 15);
-  state.vz += (targetVz - state.vz) * Math.min(1, dt * 7);
+  state.vz += (targetVz - state.vz) * Math.min(1, dt * (onIce ? 2.4 : 7));
   state.z += state.vz * dt;
   const ZLIM = LANE_HALF - 1.6;
   if (state.z > ZLIM) { state.z = ZLIM; state.vz *= 0.3; }
@@ -2269,6 +2578,7 @@ function updateSkier(dt, t) {
   if (!state.air) {
     const accel = -slope * 40;
     state.speed += (accel - 2.6) * dt;
+    if (onIce) state.speed += 7 * dt;          // 冰面更快也更难控
     if (wantBoost) state.speed += (boosted ? 32 : 17) * dt;
     // 上限随距离提升：越往后越疯
     const cap = (boosted ? 62 : 48) + Math.min(15, state.distance * 0.0055);
@@ -2529,6 +2839,10 @@ function resetRun() {
   // 剧情 / 雪崩状态
   state.chapterDone = false;
   state.arrived = false;
+  state.onIce = false;
+  state.ava.danger = 0;
+  if (avaVeilEl) avaVeilEl.style.opacity = '0';
+  for (const m of avaMist) m.visible = false;
   state.ava.on = false;
   state.ava.active = false;
   state.ava.t = 0;
@@ -2780,8 +3094,21 @@ function shopCam(t, dt) {
 function playCam(dt) {
   const spd = state.started && !state.dead ? state.speed : 8;
   const deadK = state.dead ? Math.min(1, state.deadT * 1.1) : 0;
-  const back = 9.2 + spd * 0.070 + (state.air ? 0.8 : 0) + deadK * 3.4;
-  const up = 4.9 + spd * 0.030 + deadK * 1.5;
+  const avaK = state.ava.active && state.ava.on ? 1 : 0;
+
+  // 雪崩亮相镜头：先回头看一眼追兵，再转回赛道
+  let introB = 0;
+  const freezeAva = new URLSearchParams(location.search).get('freezeava') === '1';
+  if (state.ava.active && (state.ava.intro < 2.8 || freezeAva)) {
+    if (freezeAva) state.ava.intro = 1.0;
+    else state.ava.intro += dt;
+    const it = state.ava.intro;
+    const raw = it < 1.5 ? 1 : Math.max(0, 1 - (it - 1.5) / 1.3);
+    introB = raw * raw * (3 - 2 * raw);
+  }
+
+  const back = 9.2 + spd * 0.070 + (state.air ? 0.8 : 0) + deadK * 3.4 + avaK * 1.6;
+  const up = 4.9 + spd * 0.030 + deadK * 1.5 + avaK * 1.8 + introB * 3.0;
 
   const tx = state.x - back;
   const ty = state.y + up;
@@ -2800,7 +3127,24 @@ function playCam(dt) {
   camLook.y += (ly - camLook.y) * lk;
   camLook.z += (lz - camLook.z) * lk;
 
-  setFov(60 + Math.min(16, spd * 0.26) - deadK * 4, dt, 1.6);
+  setFov(60 + Math.min(16, spd * 0.26) - deadK * 4 + avaK * 4, dt, 1.6);
+
+  // 雪崩贴上来时镜头会震；亮相时镜头被拽向追兵
+  const dg = state.ava.danger || 0;
+  if (avaK && dg > 0.08) {
+    const s = dg * 0.55;
+    camPos.y += Math.sin(elapsed * 43) * s * 0.32;
+    camPos.z += Math.sin(elapsed * 59) * s * 0.26;
+    camLook.y += Math.sin(elapsed * 37 + 1) * s * 0.22;
+  }
+  if (introB > 0.01) {
+    // 直接按比例覆盖视线目标，保证真的能回过头看到雪崩
+    const ax = state.ava.x + 6;
+    const ay = terrainY(state.ava.x) + 8;
+    camLook.x = camLook.x * (1 - introB) + ax * introB;
+    camLook.y = camLook.y * (1 - introB) + ay * introB;
+    camLook.z = camLook.z * (1 - introB);
+  }
 }
 
 function updateCamera(dt, t) {
@@ -2836,9 +3180,25 @@ const cD = new THREE.Color();
 
 function updateSky(t) {
   const inRun = appMode === 'play' || appMode === 'shop';
-  const p = inRun
-    ? Math.min(1, state.distance / DIST_FULL)
-    : 0.05 + 0.46 * (0.5 + 0.5 * Math.sin(t * 0.045 - 1.2));
+  let chIdx = 0;
+  let p;
+  if (!inRun) {
+    // 标题页：天色极缓地流动
+    p = 0.05 + 0.46 * (0.5 + 0.5 * Math.sin(t * 0.045 - 1.2));
+  } else if (runMode === 'avalanche') {
+    chIdx = 2;
+    p = 0.94;
+  } else if (runMode === 'endless') {
+    p = Math.min(1, state.distance / DIST_FULL);
+    chIdx = p < 0.35 ? 0 : p < 0.72 ? 1 : 2;
+  } else {
+    // 剧情：章节决定天色区间，章内小幅推进
+    chIdx = Math.max(0, Math.min(2, runChapter >= 0 ? runChapter : 0));
+    const L = CH_LOOK[chIdx];
+    const k = Math.min(1, state.distance / Math.max(1, CH_SPAN[chIdx]));
+    p = L.skyA + (L.skyB - L.skyA) * k;
+  }
+  curChapter = chIdx;
   let i = 0;
   while (i < PHASES.length - 2 && p > PHASES[i + 1].t) i++;
   const a = PHASES[i], b = PHASES[i + 1] || PHASES[i];
@@ -2876,6 +3236,11 @@ function updateSky(t) {
 
   // 星与雪粒在夜里更亮
   snowMat.opacity = 0.42 + night * 0.28;
+
+  // 峡谷与树影按章节调色温 —— 三章一眼能分出来
+  cTint.setHex(CH_LOOK[chIdx].tint);
+  for (const m of canyonMats) m.color.copy(cTint);
+  if (treeMat) treeMat.color.setHex(0x151a2e).lerp(cTint, 0.26);
 }
 
 // ===================== UI =====================
@@ -2975,6 +3340,7 @@ function animate() {
   updatePuffs(dt);
   updateSparks(dt);
   updateSnow(dt);
+  updateChapterDeco(dt, elapsed);
   updateCamera(dt, elapsed);
   updateSky(elapsed);
   updateUI(dt);

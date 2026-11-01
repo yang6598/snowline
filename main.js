@@ -380,90 +380,125 @@ buildCanyonWall(-1);
   scene.add(trunks, crowns);
 })();
 
-// ===================== 滑雪者（第三人称背影） =====================
+// ===================== 主角：小雪团（可爱向） =====================
 const skier = new THREE.Group();
 
-const darkMat = new THREE.MeshBasicMaterial({ color: 0x101018 });
-const dark2Mat = new THREE.MeshBasicMaterial({ color: 0x1b1b28 });
-const scarfMat = new THREE.MeshBasicMaterial({ color: 0xe4713c, side: THREE.DoubleSide });
-const bagMat = new THREE.MeshBasicMaterial({ color: 0xb8542c });
+const creamMat = new THREE.MeshBasicMaterial({ color: 0xfff6ea });   // 雪白
+const coatMat = new THREE.MeshBasicMaterial({ color: 0xff9d76 });    // 珊瑚外套
+const coatDarkMat = new THREE.MeshBasicMaterial({ color: 0xf5805e });// 暗一档
+const hatMat = new THREE.MeshBasicMaterial({ color: 0x7ad4c5 });     // 薄荷帽
+const scarfMat = new THREE.MeshBasicMaterial({ color: 0xffd071, side: THREE.DoubleSide });
+const boardMat = new THREE.MeshBasicMaterial({ color: 0xffb27a });
+const boardUnderMat = new THREE.MeshBasicMaterial({ color: 0xd9744f });
+const mittenMat = new THREE.MeshBasicMaterial({ color: 0x8ee6d4 });
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0x33263c });
+const blushMat = new THREE.MeshBasicMaterial({ color: 0xffab9a, transparent: true, opacity: 0.85 });
 
-// 板
-const boardShape = new THREE.Shape();
-boardShape.moveTo(-1.15, -0.10);
-boardShape.lineTo(-0.95, 0.02);
-boardShape.lineTo(0.92, 0.02);
-boardShape.lineTo(1.20, 0.16);
-boardShape.lineTo(1.26, 0.02);
-boardShape.lineTo(0.92, -0.12);
-boardShape.lineTo(-0.95, -0.12);
-boardShape.closePath();
-const boardGeo = new THREE.ExtrudeGeometry(boardShape, { depth: 0.5, bevelEnabled: false });
-boardGeo.translate(0, 0, -0.25);
-const board = new THREE.Mesh(boardGeo, darkMat);
-board.position.set(0, 0.16, 0);
+// 板：圆头圆尾的胖板
+const boardGeo = new THREE.CapsuleGeometry(0.30, 1.35, 4, 12);
+boardGeo.rotateZ(Math.PI / 2);
+const board = new THREE.Mesh(boardGeo, boardMat);
+board.scale.set(1.02, 0.40, 1.45);
+board.position.set(0.06, 0.11, 0);
 skier.add(board);
 
-// 腿
-const legGeo = new THREE.CapsuleGeometry(0.15, 0.52, 3, 8);
-const legL = new THREE.Mesh(legGeo, darkMat);
-legL.position.set(0.02, 0.55, -0.15);
-legL.rotation.z = -0.10;
-skier.add(legL);
-const legR = new THREE.Mesh(legGeo, darkMat);
-legR.position.set(0.02, 0.55, 0.15);
-legR.rotation.z = -0.10;
-skier.add(legR);
+const boardUnder = new THREE.Mesh(boardGeo, boardUnderMat);
+boardUnder.scale.set(1.04, 0.20, 1.15);
+boardUnder.position.set(0.06, 0.035, 0);
+skier.add(boardUnder);
 
-// 身体
-const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.33, 0.60, 4, 12), darkMat);
-body.position.set(-0.06, 1.24, 0);
-body.rotation.z = -0.28;
+// 腿：短短的
+const legGeo = new THREE.CapsuleGeometry(0.155, 0.16, 3, 8);
+for (const s of [-1, 1]) {
+  const leg = new THREE.Mesh(legGeo, coatDarkMat);
+  leg.position.set(0.02, 0.36, s * 0.20);
+  skier.add(leg);
+}
+
+// 身体：圆滚滚
+const body = new THREE.Mesh(new THREE.SphereGeometry(0.43, 18, 16), coatMat);
+body.position.set(0.0, 0.85, 0);
+body.scale.set(1.0, 1.04, 0.95);
 skier.add(body);
 
-// 背包
-const bag = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.62, 0.52), bagMat);
-bag.position.set(-0.36, 1.30, 0);
-bag.rotation.z = -0.28;
-skier.add(bag);
+// 身体前襟（浅色肚皮）
+const belly = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 14), creamMat);
+belly.position.set(0.18, 0.80, 0);
+belly.scale.set(0.85, 0.95, 0.86);
+skier.add(belly);
 
-// 手臂
-const armGeo = new THREE.CapsuleGeometry(0.09, 0.46, 3, 8);
-const armL = new THREE.Mesh(armGeo, dark2Mat);
-armL.position.set(0.16, 1.24, -0.40);
-armL.rotation.set(0.2, 0, -0.9);
-skier.add(armL);
-const armR = new THREE.Mesh(armGeo, dark2Mat);
-armR.position.set(0.16, 1.24, 0.40);
-armR.rotation.set(-0.2, 0, -0.9);
-skier.add(armR);
+// 手臂 + 连指手套
+const armGeo = new THREE.CapsuleGeometry(0.105, 0.26, 3, 8);
+for (const s of [-1, 1]) {
+  const arm = new THREE.Mesh(armGeo, coatMat);
+  arm.position.set(0.04, 0.90, s * 0.40);
+  arm.rotation.set(s * 0.35, 0, -0.55);
+  skier.add(arm);
 
-// 头
-const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 14), darkMat);
-head.position.set(0.06, 1.92, 0);
-head.scale.set(1, 0.96, 0.94);
+  const mitten = new THREE.Mesh(new THREE.SphereGeometry(0.145, 12, 10), mittenMat);
+  mitten.position.set(0.24, 0.70, s * 0.50);
+  mitten.scale.set(1, 0.92, 1);
+  skier.add(mitten);
+}
+
+// 围脖
+const collar = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.115, 9, 20), scarfMat);
+collar.position.set(0.0, 1.20, 0);
+collar.rotation.x = Math.PI / 2;
+skier.add(collar);
+
+// 大头
+const head = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 18), creamMat);
+head.position.set(0.02, 1.56, 0);
+head.scale.set(1, 0.98, 0.97);
 skier.add(head);
-// 帽子/发
-const hair = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), dark2Mat);
-hair.position.set(0.04, 1.96, 0);
-skier.add(hair);
 
-// 围巾（向后上方飘，水平带）
-const scarfGeo = new THREE.PlaneGeometry(1.15, 0.20, 12, 2);
-scarfGeo.rotateX(-Math.PI / 2);
+// 腮红 + 眼睛（正面，转身/落地时能看到）
+for (const s of [-1, 1]) {
+  const blush = new THREE.Mesh(new THREE.SphereGeometry(0.105, 10, 8), blushMat);
+  blush.position.set(0.38, 1.47, s * 0.245);
+  blush.scale.set(0.55, 0.7, 1);
+  skier.add(blush);
+
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), eyeMat);
+  eye.position.set(0.415, 1.615, s * 0.155);
+  skier.add(eye);
+}
+
+// 薄荷毛线帽
+const hat = new THREE.Mesh(new THREE.SphereGeometry(0.475, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.56), hatMat);
+hat.position.set(0.01, 1.55, 0);
+skier.add(hat);
+
+const hatBrim = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.062, 9, 22), hatMat);
+hatBrim.position.set(0.01, 1.58, 0);
+hatBrim.rotation.x = Math.PI / 2;
+skier.add(hatBrim);
+
+// 帽顶绒球
+const pompom = new THREE.Mesh(new THREE.SphereGeometry(0.155, 12, 10), creamMat);
+pompom.position.set(-0.02, 2.05, 0);
+skier.add(pompom);
+const pompom2 = new THREE.Mesh(new THREE.SphereGeometry(0.10, 10, 8), creamMat);
+pompom2.position.set(-0.05, 2.10, 0.02);
+skier.add(pompom2);
+
+// 围巾尾巴（向后飘）
+const scarfGeo = new THREE.PlaneGeometry(0.85, 0.26, 12, 2);
+scarfGeo.translate(-0.42, 0, 0);
 const scarf = new THREE.Mesh(scarfGeo, scarfMat);
-scarf.position.set(-0.62, 2.02, 0);
-scarf.rotation.z = 0.09;
+scarf.position.set(-0.10, 1.20, 0);
+scarf.rotation.z = 0.06;
 skier.add(scarf);
 const scarfBase = scarfGeo.attributes.position.array.slice();
 
-// 角色柔光（让他从暗背景中浮起来）
+// 角色柔光（从暗背景里浮出来）
 const skierGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-  map: GLOW, color: 0xffd7a8, transparent: true,
-  blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.26, fog: false,
+  map: GLOW, color: 0xffe6c2, transparent: true,
+  blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.22, fog: false,
 }));
-skierGlow.scale.setScalar(2.3);
-skierGlow.position.set(-0.1, 1.1, 0);
+skierGlow.scale.setScalar(2.6);
+skierGlow.position.set(-0.1, 1.0, 0);
 skier.add(skierGlow);
 
 // 脚下投影
@@ -472,7 +507,7 @@ const shadowMesh = new THREE.Mesh(new THREE.CircleGeometry(0.95, 24), shadowMat)
 shadowMesh.rotation.x = -Math.PI / 2;
 scene.add(shadowMesh);
 
-skier.scale.setScalar(1.12);
+skier.scale.setScalar(1.06);
 skier.position.set(0, terrainY(0), 0);
 scene.add(skier);
 
@@ -496,61 +531,254 @@ const trail = new THREE.Points(trailGeo, new THREE.PointsMaterial({
 trail.frustumCulled = false;
 scene.add(trail);
 
-// ===================== 光花 =====================
-const FLOWER_MAX = 170;
-const flowers = [];
-const flowerGroup = new THREE.Group();
-scene.add(flowerGroup);
+// ===================== 小动物（碰到就有不同的祝福） =====================
+const ANIMAL_INFO = {
+  rabbit:  { name: '雪兔', note: '超级弹跳', tint: '#ffd9e2', glow: 0xffd9e2 },
+  penguin: { name: '企鹅', note: '冲刺加速', tint: '#ffc98a', glow: 0xffc98a },
+  owl:     { name: '雪鸮', note: '空中滑翔', tint: '#c2e6ff', glow: 0xc2e6ff },
+  fox:     { name: '小狐', note: '拾光磁吸', tint: '#ffb27a', glow: 0xffb27a },
+};
 
-const petalGeo = new THREE.SphereGeometry(0.20, 8, 7);
-const petalMat = new THREE.MeshBasicMaterial({ color: 0xe2603a });
-const coreMat = new THREE.MeshBasicMaterial({ color: 0x6a2c14 });
-const stemMat = new THREE.MeshBasicMaterial({ color: 0xc3cfeb, transparent: true, opacity: 0.6 });
-const stemGeo = new THREE.CylinderGeometry(0.04, 0.06, 1, 5);
+const mCream = new THREE.MeshBasicMaterial({ color: 0xfffaf2 });
+const mSnow = new THREE.MeshBasicMaterial({ color: 0xeef4ff });
+const mNavy = new THREE.MeshBasicMaterial({ color: 0x2c3350 });
+const mOrange = new THREE.MeshBasicMaterial({ color: 0xff9a4d });
+const mFox = new THREE.MeshBasicMaterial({ color: 0xf08a4e });
+const mPink = new THREE.MeshBasicMaterial({ color: 0xffb4b4 });
+const mDark = new THREE.MeshBasicMaterial({ color: 0x2b2438 });
 
-function createFlower() {
+function addEye(parent, x, y, z, r = 0.055) {
+  const e = new THREE.Mesh(new THREE.SphereGeometry(r, 9, 8), mDark);
+  e.position.set(x, y, z);
+  parent.add(e);
+}
+
+function buildRabbit() {
   const g = new THREE.Group();
-  const stem = new THREE.Mesh(stemGeo, stemMat);
-  stem.position.y = 0.5;
-  g.add(stem);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.40, 14, 12), mCream);
+  body.position.set(0, 0.46, 0);
+  body.scale.set(1.06, 1, 0.94);
+  g.add(body);
 
-  const hd = new THREE.Group();
-  hd.position.y = 1;
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 7), coreMat);
-  hd.add(core);
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2 + 0.3;
-    const p = new THREE.Mesh(petalGeo, petalMat);
-    p.position.set(Math.cos(a) * 0.24, Math.sin(a) * 0.24, 0);
-    p.scale.set(1, 0.74, 0.8);
-    p.rotation.z = a;
-    hd.add(p);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.29, 14, 12), mCream);
+  head.position.set(-0.28, 0.82, 0);
+  g.add(head);
+
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.CapsuleGeometry(0.072, 0.36, 3, 8), mCream);
+    ear.position.set(-0.30, 1.12, s * 0.135);
+    ear.rotation.set(s * 0.13, 0, 0.14);
+    g.add(ear);
+    const inner = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.26, 3, 6), mPink);
+    inner.position.set(-0.335, 1.13, s * 0.135);
+    inner.rotation.set(s * 0.13, 0, 0.14);
+    g.add(inner);
+    addEye(g, -0.505, 0.86, s * 0.115);
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), mPink);
+    blush.position.set(-0.46, 0.76, s * 0.19);
+    blush.scale.set(0.5, 0.6, 1);
+    g.add(blush);
   }
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: GLOW, color: 0xffc985, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5, fog: false,
-  }));
-  halo.scale.setScalar(3.2);
-  hd.add(halo);
-  g.add(hd);
 
-  g.userData = { head: hd, halo, grow: 0, sway: Math.random() * Math.PI * 2, targetScale: 1.9 };
-  g.scale.setScalar(0.001);
-  g.visible = false;
-  flowerGroup.add(g);
+  const tail = new THREE.Mesh(new THREE.SphereGeometry(0.135, 10, 8), mCream);
+  tail.position.set(0.40, 0.40, 0);
+  g.add(tail);
   return g;
 }
-for (let i = 0; i < FLOWER_MAX; i++) flowers.push(createFlower());
-let flowerWrite = 0;
 
-function plantFlower(x, z) {
-  const f = flowers[flowerWrite];
-  flowerWrite = (flowerWrite + 1) % FLOWER_MAX;
-  f.position.set(x, terrainY(x) + bank(z) - 0.05, z);
-  f.rotation.y = Math.random() * 6.28;
-  f.visible = true;
-  f.userData.grow = 0.001;
-  f.scale.setScalar(0.001);
+function buildPenguin() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.41, 14, 12), mNavy);
+  body.position.set(0, 0.50, 0);
+  body.scale.set(0.98, 1.06, 0.92);
+  g.add(body);
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.33, 14, 12), mSnow);
+  belly.position.set(-0.14, 0.44, 0);
+  belly.scale.set(0.78, 1.02, 0.86);
+  g.add(belly);
+
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.22, 10), mOrange);
+  beak.position.set(-0.46, 0.72, 0);
+  beak.rotation.z = Math.PI / 2;
+  g.add(beak);
+
+  for (const s of [-1, 1]) {
+    addEye(g, -0.34, 0.86, s * 0.15, 0.05);
+    const wing = new THREE.Mesh(new THREE.SphereGeometry(0.19, 10, 8), mNavy);
+    wing.position.set(0.02, 0.54, s * 0.36);
+    wing.scale.set(0.7, 1.05, 0.45);
+    wing.rotation.z = -0.25;
+    g.add(wing);
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 8), mOrange);
+    foot.position.set(-0.10, 0.06, s * 0.17);
+    foot.scale.set(1.2, 0.4, 1);
+    g.add(foot);
+  }
+  return g;
+}
+
+function buildOwl() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 12), mCream);
+  body.position.set(0, 0.52, 0);
+  body.scale.set(1, 1.08, 0.95);
+  g.add(body);
+
+  for (const s of [-1, 1]) {
+    const disc = new THREE.Mesh(new THREE.SphereGeometry(0.175, 12, 10), mSnow);
+    disc.position.set(-0.33, 0.78, s * 0.18);
+    disc.scale.set(0.7, 1, 1);
+    g.add(disc);
+    addEye(g, -0.43, 0.78, s * 0.18, 0.075);
+    const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.24, 8), mCream);
+    tuft.position.set(-0.14, 1.02, s * 0.24);
+    tuft.rotation.set(s * 0.28, 0, 0.18);
+    g.add(tuft);
+    const wing = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), mSnow);
+    wing.position.set(0.06, 0.54, s * 0.36);
+    wing.scale.set(0.85, 1.15, 0.34);
+    wing.rotation.z = -0.18;
+    g.add(wing);
+  }
+
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.17, 9), mOrange);
+  beak.position.set(-0.44, 0.66, 0);
+  beak.rotation.z = Math.PI / 2;
+  g.add(beak);
+  return g;
+}
+
+function buildFox() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 14, 12), mFox);
+  body.position.set(0, 0.44, 0);
+  body.scale.set(1.12, 1, 0.94);
+  g.add(body);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 14, 12), mFox);
+  head.position.set(-0.32, 0.78, 0);
+  g.add(head);
+
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), mCream);
+  muzzle.position.set(-0.50, 0.72, 0);
+  muzzle.scale.set(1.25, 0.78, 0.86);
+  g.add(muzzle);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), mDark);
+  nose.position.set(-0.63, 0.75, 0);
+  g.add(nose);
+
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.ConeGeometry(0.10, 0.26, 8), mFox);
+    ear.position.set(-0.30, 1.02, s * 0.145);
+    ear.rotation.set(s * 0.2, 0, 0.1);
+    g.add(ear);
+    addEye(g, -0.55, 0.84, s * 0.12);
+  }
+
+  const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.42, 4, 10), mFox);
+  tail.position.set(0.48, 0.52, 0);
+  tail.rotation.z = -0.55;
+  g.add(tail);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.145, 10, 8), mCream);
+  tip.position.set(0.68, 0.72, 0);
+  g.add(tip);
+  return g;
+}
+
+const ANIMAL_BUILDERS = { rabbit: buildRabbit, penguin: buildPenguin, owl: buildOwl, fox: buildFox };
+
+const animals = [];
+const animalGroup = new THREE.Group();
+scene.add(animalGroup);
+
+(function spawnAnimals() {
+  const order = ['rabbit', 'penguin', 'owl', 'fox'];
+  let x = 105;
+  let k = 0;
+  while (x < X_END - 700) {
+    const type = order[k % order.length];
+    k++;
+    const z = (Math.random() - 0.5) * (LANE_HALF * 1.35);
+    const g = ANIMAL_BUILDERS[type]();
+    const baseY = terrainY(x) + bank(z);
+    g.position.set(x, baseY, z);
+    g.rotation.y = (Math.random() - 0.5) * 0.3;
+    g.userData = { type, taken: false, fade: 0, phase: Math.random() * 6.28, baseY };
+    animalGroup.add(g);
+    animals.push(g);
+    x += 92 + Math.random() * 58;
+  }
+})();
+
+function pickAnimal(a) {
+  if (a.userData.taken || state.dead) return;
+  a.userData.taken = true;
+  a.userData.fade = 0.75;
+  const info = ANIMAL_INFO[a.userData.type];
+  state.buddies++;
+
+  sfxAnimal();
+  spawnBurst(a.position.x, a.position.y + 0.7, a.position.z, info.glow, 12);
+
+  switch (a.userData.type) {
+    case 'rabbit':                       // 雪兔：一跳飞天
+      state.air = true;
+      state.vy = 19;
+      state.spin = 0;
+      state.fx.invuln = 1.4;
+      showChip('雪兔 · 超级弹跳', info.tint, 2200);
+      break;
+    case 'penguin':                      // 企鹅：肚皮冲刺
+      state.fx.boost = 3.6;
+      state.fx.invuln = 1.8;
+      showChip('企鹅 · 冲刺加速', info.tint, 3600);
+      break;
+    case 'owl':                          // 雪鸮：滑翔一段
+      state.fx.glide = 3.4;
+      state.air = true;
+      state.vy = 7.2;
+      state.spin = 0;
+      state.fx.invuln = 3.4;
+      showChip('雪鸮 · 空中滑翔', info.tint, 3400);
+      break;
+    case 'fox':                          // 小狐：把光都叼过来
+      state.fx.magnet = 9;
+      showChip('小狐 · 拾光磁吸', info.tint, 9000);
+      break;
+  }
+  showPop(info.name + '　' + info.note);
+}
+
+function updateAnimals(dt, t) {
+  for (const a of animals) {
+    const u = a.userData;
+    if (u.taken) {
+      if (u.fade > 0) {
+        u.fade -= dt;
+        const k = Math.max(0, u.fade / 0.75);
+        a.scale.setScalar(1 + (1 - k) * 0.5);
+        a.position.y = u.baseY + (1 - k) * 2.4;
+        a.rotation.z += dt * 3.0;
+        a.visible = u.fade > 0;
+      }
+      continue;
+    }
+
+    // 呼吸 + 摇摆
+    a.position.y = u.baseY + Math.sin(t * 2.1 + u.phase) * 0.07;
+    a.rotation.z = Math.sin(t * 1.5 + u.phase) * 0.05;
+    a.rotation.y = Math.sin(t * 0.6 + u.phase) * 0.12;
+
+    if (!state.started || state.dead) continue;
+
+    const dx = a.position.x - state.x;
+    if (dx > 60 || dx < -10) continue;
+    const dz = a.position.z - state.z;
+    const reached = a.position.x >= state.prevX - 1.2 && a.position.x <= state.x + 1.4;
+    if (reached && Math.abs(dz) < 2.0) pickAnimal(a);
+  }
 }
 
 // ===================== 收集光点 =====================
@@ -570,7 +798,7 @@ for (let i = 0; i < ORB_COUNT; i++) {
   s.position.set(x, terrainY(x) + bank(z) + 2.0 + Math.random() * 1.9, z);
   const sc = 1.7 + Math.random() * 0.5;
   s.scale.setScalar(sc);
-  s.userData = { taken: false, baseY: s.position.y, phase: Math.random() * 6.28, baseScale: sc };
+  s.userData = { taken: false, baseY: s.position.y, phase: Math.random() * 6.28, baseScale: sc, ix: s.position.x, iy: s.position.y, iz: s.position.z };
   orbGroup.add(s);
   orbs.push(s);
 }
@@ -597,6 +825,7 @@ scene.add(snowPts);
 // ===================== 状态 =====================
 const state = {
   x: 0,
+  prevX: 0,
   z: 0,
   y: terrainY(0),
   vz: 0,
@@ -605,39 +834,63 @@ const state = {
   air: false,
   started: false,
   score: 0,
-  flowersN: 0,
+  buddies: 0,
+  best: 0,
   distance: 0,
   spin: 0,
+  flipAngle: 0,
   boosting: false,
   boost: 1,
   steer: 0,
-  lastFlowerX: -999,
+  dead: false,
+  deadT: 0,
+  squash: 0,
+  fx: { boost: 0, glide: 0, magnet: 0, invuln: 0 },
 };
 
 const camPos = new THREE.Vector3(-11, terrainY(0) + 6, 0);
 const camLook = new THREE.Vector3(14, terrainY(0) + 2, 0);
 
 // ===================== 输入 =====================
-const keys = { left: false, right: false, boost: false };
+const keys = { left: false, right: false, boost: false, flip: false };
+let touchHold = false;
+
+function syncFlip() {
+  keys.flip = keys.flipKey || touchHold;
+}
 window.addEventListener('keydown', (e) => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
   if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
   if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.boost = true;
+  if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+    if (!keys.flipKey && state.dead) return;
+    keys.flipKey = true;
+    syncFlip();
+  }
   if (e.code === 'Space') {
     e.preventDefault();
-    if (state.started) jump();
+    if (state.started && !state.dead) jump();
   }
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
   if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
   if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.boost = false;
+  if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+    keys.flipKey = false;
+    syncFlip();
+  }
 });
 
 let touchX = null;
 window.addEventListener('pointerdown', (e) => {
-  if (!state.started) return;
-  if (e.pointerType === 'touch') { touchX = e.clientX; return; }
+  if (!state.started || state.dead) return;
+  if (e.pointerType === 'touch') {
+    touchX = e.clientX;
+    touchHold = true;
+    syncFlip();
+    return;
+  }
   jump();
 });
 window.addEventListener('pointermove', (e) => {
@@ -649,11 +902,17 @@ window.addEventListener('pointermove', (e) => {
     }
   }
 });
-window.addEventListener('pointerup', () => { touchX = null; keys.left = false; keys.right = false; });
-window.addEventListener('pointercancel', () => { touchX = null; keys.left = false; keys.right = false; });
+window.addEventListener('pointerup', () => {
+  touchX = null; touchHold = false; syncFlip();
+  keys.left = false; keys.right = false;
+});
+window.addEventListener('pointercancel', () => {
+  touchX = null; touchHold = false; syncFlip();
+  keys.left = false; keys.right = false;
+});
 
 function jump() {
-  if (state.air) return;
+  if (state.air || state.dead) return;
   state.air = true;
   state.vy = 11 + state.speed * 0.20;
   state.spin = 0;
@@ -998,6 +1257,67 @@ function sfxLand() {
   o.start(t); o.stop(t + 0.3);
 }
 
+// 碰到小动物：两声上扬的可爱“啾”
+function sfxAnimal() {
+  if (!audio.ready) return;
+  const ctx = audio.ctx;
+  const t0 = ctx.currentTime;
+  [[784, 0], [1175, 0.09]].forEach(([f, d]) => {
+    const t = t0 + d;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f * 1.25, t + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.07, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.30);
+    o.connect(g); g.connect(audio.master); g.connect(audio.delay);
+    o.start(t); o.stop(t + 0.34);
+  });
+}
+
+// 摔倒：一声闷响 + 雪块散落
+function sfxCrash() {
+  if (!audio.ready) return;
+  const ctx = audio.ctx;
+  const t = ctx.currentTime;
+
+  const o = ctx.createOscillator();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(190, t);
+  o.frequency.exponentialRampToValueAtTime(38, t + 0.32);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+  o.connect(g); g.connect(audio.master);
+  o.start(t); o.stop(t + 0.55);
+
+  const len = Math.floor(ctx.sampleRate * 0.4);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+  const n = ctx.createBufferSource();
+  n.buffer = buf;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 1600;
+  const ng = ctx.createGain();
+  ng.gain.value = 0.16;
+  n.connect(lp); lp.connect(ng); ng.connect(audio.master);
+  n.start(t);
+
+  // 背景音乐短暂压低
+  if (audio.musicBus) {
+    const now = ctx.currentTime;
+    audio.musicBus.gain.cancelScheduledValues(now);
+    audio.musicBus.gain.setValueAtTime(audio.musicBus.gain.value, now);
+    audio.musicBus.gain.exponentialRampToValueAtTime(0.03, now + 0.35);
+    audio.musicBus.gain.exponentialRampToValueAtTime(0.22, now + 3.0);
+  }
+}
+
 // ===================== UI 引用 =====================
 const bootEl = document.getElementById('boot');
 const introEl = document.getElementById('intro');
@@ -1011,6 +1331,41 @@ const scoreEl = document.getElementById('score');
 const phaseFillEl = document.getElementById('phaseFill');
 const boostFillEl = document.getElementById('boostFill');
 const boostWrapEl = document.getElementById('boostWrap');
+const chipEl = document.getElementById('chip');
+const popEl = document.getElementById('pop');
+const deadEl = document.getElementById('dead');
+const flashEl = document.getElementById('flash');
+const dDistEl = document.getElementById('dDist');
+const dOrbsEl = document.getElementById('dOrbs');
+const dBuddiesEl = document.getElementById('dBuddies');
+const dBestEl = document.getElementById('dBest');
+
+// ---------- 效果提示条 ----------
+let chipTimer = null;
+function showChip(text, tint, ms) {
+  chipEl.textContent = text;
+  chipEl.style.borderColor = tint;
+  chipEl.style.color = '#fff';
+  chipEl.style.boxShadow = '0 0 22px ' + tint + '55';
+  chipEl.classList.add('on');
+  if (chipTimer) clearTimeout(chipTimer);
+  chipTimer = setTimeout(hideChip, ms || 2200);
+}
+function hideChip() {
+  chipEl.classList.remove('on');
+  if (chipTimer) { clearTimeout(chipTimer); chipTimer = null; }
+}
+
+// ---------- 屏幕中央飘字 ----------
+let popTimer = null;
+function showPop(text) {
+  popEl.textContent = text;
+  popEl.classList.remove('go');
+  void popEl.offsetWidth;
+  popEl.classList.add('go');
+  if (popTimer) clearTimeout(popTimer);
+  popTimer = setTimeout(() => popEl.classList.remove('go'), 1400);
+}
 
 const isTest = new URLSearchParams(location.search).get('auto') === '1';
 
@@ -1042,13 +1397,23 @@ if (isTest) setTimeout(begin, 300);
   const d = parseFloat(new URLSearchParams(location.search).get('d') || '0');
   if (d > 0) {
     state.x = d;
+    state.prevX = d;
     state.y = terrainY(d);
     state.distance = d;
-    state.lastFlowerX = d;
     camPos.set(d - 11, terrainY(d) + 6, 0);
     camLook.set(d + 14, terrainY(d) + 2, 0);
-    for (let fx = d - 110; fx < d - 8; fx += 7) plantFlower(fx, Math.sin(fx * 0.3) * 5);
   }
+}
+
+// 重新开始
+document.getElementById('againBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  restart();
+});
+
+// 调试：?crash=1 开局 1 秒后模拟摔倒
+if (new URLSearchParams(location.search).get('crash') === '1') {
+  setTimeout(() => { if (!state.dead) crash(); }, 1000 + (parseFloat(new URLSearchParams(location.search).get('d') || '0') > 0 ? 1500 : 0));
 }
 
 // ===================== 更新：角色 =====================
@@ -1056,7 +1421,14 @@ function updateSkier(dt, t) {
   const slope = terrainSlope(state.x);
   const ang = Math.atan(slope);
 
-  // 转向
+  // 效果计时
+  for (const k in state.fx) state.fx[k] = Math.max(0, state.fx[k] - dt);
+  const gliding = state.fx.glide > 0;
+  const boosted = state.fx.boost > 0;
+
+  state.prevX = state.x;
+
+  // ---- 转向 ----
   const steerIn = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
   state.steer += (steerIn - state.steer) * Math.min(1, dt * 9);
   const targetVz = state.steer * (state.air ? 9 : 15);
@@ -1066,43 +1438,77 @@ function updateSkier(dt, t) {
   if (state.z > ZLIM) { state.z = ZLIM; state.vz *= 0.3; }
   if (state.z < -ZLIM) { state.z = -ZLIM; state.vz *= 0.3; }
 
-  // 冲刺
-  const wantBoost = (keys.boost || state.boosting) && state.boost > 0.02 && !state.air;
-  if (wantBoost) state.boost = Math.max(0, state.boost - dt * 0.30);
-  else state.boost = Math.min(1, state.boost + dt * 0.13);
+  // ---- 冲刺 ----
+  const wantBoost = (keys.boost || boosted) && (boosted || state.boost > 0.02) && !state.air;
+  if (wantBoost && !boosted) state.boost = Math.max(0, state.boost - dt * 0.30);
+  else if (!boosted) state.boost = Math.min(1, state.boost + dt * 0.13);
 
   if (!state.air) {
     const accel = -slope * 40;
     state.speed += (accel - 2.6) * dt;
-    if (wantBoost) state.speed += 17 * dt;
-    state.speed = Math.max(6, Math.min(48, state.speed));
+    if (wantBoost) state.speed += (boosted ? 32 : 17) * dt;
+    state.speed = Math.max(6, Math.min(boosted ? 62 : 48, state.speed));
 
     state.x += Math.cos(ang) * state.speed * dt;
     state.y = terrainY(state.x) + bank(state.z);
 
     if (slope > 0.22 && state.speed > 15) jump();
   } else {
-    state.vy -= 36 * dt;
+    // ---- 空中 ----
+    state.vy -= (gliding ? 8.5 : 36) * dt;
+    if (gliding) {
+      state.vy = Math.max(state.vy, -3.0);
+      state.speed = Math.max(state.speed, 26);
+    }
     state.x += Math.cos(ang * 0.4) * state.speed * dt;
     state.y += state.vy * dt;
-    state.spin += dt * (state.speed * 0.10);
+
+    // 按住 W/↑ 翻转
+    if (!gliding && keys.flip) state.spin += dt * 6.2;
+
     const gy = terrainY(state.x) + bank(state.z);
     if (state.y <= gy) {
       state.y = gy;
-      state.air = false;
-      state.vy = 0;
-      state.spin = 0;
-      sfxLand();
-      for (let i = 0; i < 7; i++) spawnPuff(state.x, gy, state.z);
+
+      if (gliding) {
+        // 雪鸮托着，轻轻放下
+        state.air = false;
+        state.vy = 0;
+        state.spin = 0;
+        state.squash = 0.12;
+        sfxLand();
+        for (let i = 0; i < 6; i++) spawnPuff(state.x, gy, state.z);
+      } else if (Math.cos(state.spin) < 0.25 && state.fx.invuln <= 0) {
+        // 头朝地 —— 摔倒
+        crash();
+        return;
+      } else {
+        const flips = Math.floor((state.spin + 0.55) / (Math.PI * 2));
+        state.air = false;
+        state.vy = 0;
+        state.spin = 0;
+        state.squash = 0.22;
+        sfxLand();
+        for (let i = 0; i < 8; i++) spawnPuff(state.x, gy, state.z);
+        if (flips > 0) {
+          state.boost = Math.min(1, state.boost + 0.3 * flips);
+          state.score += 0;
+          showPop(flips > 1 ? '连续翻转 ×' + flips + '　漂亮！' : '完 美 落 地');
+          spawnBurst(state.x, gy + 0.8, state.z, 0xffe0b0, 10);
+          sfxAnimal();
+        }
+      }
     }
   }
 
   state.x = Math.min(state.x, X_END - 400);
 
-  // 位姿
+  // ---- 位姿 ----
+  if (state.squash > 0) state.squash = Math.max(0, state.squash - dt * 0.9);
+  const sq = state.squash;
+  skier.scale.set(1.06 * (1 + sq * 0.55), 1.06 * (1 - sq * 1.1), 1.06 * (1 + sq * 0.55));
   skier.position.set(state.x, state.y, state.z);
-  const leanZ = state.air ? state.spin : -ang * 0.9;
-  skier.rotation.z = leanZ;
+  skier.rotation.z = state.air || state.dead ? state.spin : -ang * 0.9;
   skier.rotation.x = -state.steer * 0.30;
   skier.rotation.y = -state.steer * 0.16;
 
@@ -1121,7 +1527,7 @@ function updateSkier(dt, t) {
   const total = 13;
   for (let i = 0; i < arr.length; i += 3) {
     const col = i / 3;
-    const u = (col % total) / (total - 1);   // 0 靠脖子 → 1 尾部
+    const u = (col % total) / (total - 1);
     const amp = (0.05 + state.speed * 0.010) * u * u;
     arr[i + 1] = scarfBase[i + 1] + Math.sin(t * 13 - u * 7) * amp;
     arr[i] = scarfBase[i] + Math.cos(t * 9 - u * 5) * amp * 0.6;
@@ -1139,15 +1545,102 @@ function updateSkier(dt, t) {
   trailPos[2] = state.z;
   trailGeo.attributes.position.needsUpdate = true;
 
-  // 种花（避开角色正后方，左右散开）
-  if (!state.air && state.x - state.lastFlowerX > 7) {
-    state.lastFlowerX = state.x;
-    const side = Math.random() < 0.5 ? -1 : 1;
-    plantFlower(state.x - 0.5, state.z + side * (1.4 + Math.random() * 2.2));
-    state.flowersN++;
+  state.distance = Math.max(state.distance, state.x);
+}
+
+// ===================== 摔倒 =====================
+function crash() {
+  if (state.dead) return;
+  state.dead = true;
+  state.deadT = 0;
+  state.air = false;
+  state.spin = 0;
+  state.speed *= 0.45;
+  state.best = Math.max(state.best, Math.floor(state.distance));
+
+  sfxCrash();
+  flashScreen();
+  for (let i = 0; i < 26; i++) {
+    spawnPuff(state.x + (Math.random() - 0.5) * 2.4, state.y + Math.random() * 1.6, state.z + (Math.random() - 0.5) * 2.4);
   }
 
-  state.distance = Math.max(state.distance, state.x);
+  setTimeout(() => {
+    dDistEl.textContent = String(Math.floor(state.distance));
+    dOrbsEl.textContent = String(state.score);
+    dBuddiesEl.textContent = String(state.buddies);
+    dBestEl.textContent = String(state.best);
+    deadEl.classList.add('on');
+  }, 950);
+}
+
+function flashScreen() {
+  flashEl.classList.add('on');
+  setTimeout(() => flashEl.classList.remove('on'), 130);
+}
+
+function updateDead(dt, t) {
+  state.deadT += dt;
+  // 惯性往前蹭一小段，然后翻滚
+  state.x += state.speed * dt * 0.3;
+  state.speed *= Math.pow(0.02, dt);
+  state.y = terrainY(state.x) + bank(state.z) - 0.25;
+  skier.position.set(state.x, state.y, state.z);
+  skier.rotation.z += dt * 4.6;
+  skier.rotation.x += dt * 1.1;
+  if (state.deadT < 0.8 && Math.random() < 0.5) {
+    spawnPuff(state.x, state.y + 0.3, state.z);
+  }
+}
+
+function restart() {
+  deadEl.classList.remove('on');
+  for (const o of orbs) {
+    o.userData.taken = false;
+    o.visible = true;
+    o.position.set(o.userData.ix, o.userData.iy, o.userData.iz);
+    o.userData.baseY = o.userData.iy;
+  }
+  for (const a of animals) {
+    a.userData.taken = false;
+    a.userData.fade = 0;
+    a.visible = true;
+    a.scale.setScalar(1);
+    a.rotation.set(0, a.rotation.y, 0);
+    a.position.set(a.position.x, a.userData.baseY, a.position.z);
+  }
+  state.x = 0;
+  state.prevX = 0;
+  state.z = 0;
+  state.y = terrainY(0);
+  state.vz = 0;
+  state.speed = 10;
+  state.vy = 0;
+  state.air = false;
+  state.score = 0;
+  state.buddies = 0;
+  state.distance = 0;
+  state.spin = 0;
+  state.boost = 1;
+  state.steer = 0;
+  state.dead = false;
+  state.deadT = 0;
+  state.squash = 0;
+  state.fx.boost = 0;
+  state.fx.glide = 0;
+  state.fx.magnet = 0;
+  state.fx.invuln = 0;
+
+  keys.left = keys.right = keys.boost = false;
+  keys.flipKey = false;
+  touchHold = false;
+  syncFlip();
+
+  skier.scale.setScalar(1.06);
+  skier.rotation.set(0, 0, 0);
+  skier.position.set(0, terrainY(0), 0);
+  camPos.set(-11, terrainY(0) + 6, 0);
+  camLook.set(14, terrainY(0) + 2, 0);
+  hideChip();
 }
 
 // ===================== 更新：粒子 =====================
@@ -1179,40 +1672,83 @@ function updatePuffs(dt) {
   }
 }
 
-function updateFlowers(dt, t) {
-  for (const f of flowers) {
-    if (!f.visible) continue;
-    if (f.userData.grow < 1) {
-      f.userData.grow = Math.min(1, f.userData.grow + dt * 2.6);
-      const g = f.userData.grow;
-      const e = 1 - Math.pow(1 - g, 3);
-      const over = 1 + Math.sin(g * Math.PI) * 0.20;
-      f.scale.setScalar(e * over * f.userData.targetScale);
-    }
-    f.userData.head.rotation.z = Math.sin(t * 1.4 + f.userData.sway) * 0.14;
-    if (Math.abs(f.position.x - state.x) < 70) {
-      f.userData.halo.material.opacity = 0.62 + Math.sin(t * 2.2 + f.userData.sway) * 0.22;
+// ===================== 彩色光点爆发（碰到小动物 / 完美落地） =====================
+const sparks = [];
+function spawnBurst(x, y, z, color, n) {
+  for (let i = 0; i < n; i++) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: GLOW, color, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95, fog: false,
+    }));
+    s.position.set(x, y, z);
+    const a = Math.random() * Math.PI * 2;
+    const r = 2.4 + Math.random() * 4.2;
+    s.scale.setScalar(0.5 + Math.random() * 0.5);
+    s.userData = {
+      life: 0.75 + Math.random() * 0.35,
+      max: 1.1,
+      vx: Math.cos(a) * r,
+      vy: 1.6 + Math.random() * 3.6,
+      vz: Math.sin(a) * r,
+    };
+    scene.add(s);
+    sparks.push(s);
+  }
+}
+function updateSparks(dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    const u = s.userData;
+    u.life -= dt;
+    u.vy -= 6 * dt;
+    s.position.x += u.vx * dt;
+    s.position.y += u.vy * dt;
+    s.position.z += u.vz * dt;
+    u.vx *= Math.pow(0.12, dt);
+    u.vz *= Math.pow(0.12, dt);
+    s.material.opacity = Math.max(0, u.life / u.max) * 0.95;
+    s.scale.setScalar(0.4 + (1 - u.life / u.max) * 0.9);
+    if (u.life <= 0) {
+      scene.remove(s);
+      s.material.dispose();
+      sparks.splice(i, 1);
     }
   }
 }
 
+// ===================== 收集光点 =====================
 function updateOrbs(dt, t) {
+  const magnet = state.fx.magnet > 0;
   for (const o of orbs) {
     if (o.userData.taken) continue;
     o.position.y = o.userData.baseY + Math.sin(t * 1.8 + o.userData.phase) * 0.38;
+
+    if (magnet && state.started) {
+      const dx = state.x - o.position.x;
+      const dz = state.z - o.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < 900) {
+        // 被小狐叼着往身边飞
+        const k = Math.min(1, dt * 4.5);
+        o.position.x += dx * k;
+        o.position.z += dz * k;
+        o.userData.baseY += ((state.y + 1.2) - o.userData.baseY) * k;
+      }
+    }
+
     const pulse = 1 + Math.sin(t * 2.6 + o.userData.phase) * 0.11;
     o.scale.setScalar(o.userData.baseScale * pulse);
 
-    if (!state.started) continue;
+    if (!state.started || state.dead) continue;
     const dx = o.position.x - state.x;
-    const dy = o.position.y - (state.y + 1.2);
+    const dy = o.position.y - (state.y + 1.1);
     const dz = o.position.z - state.z;
-    if (dx * dx + dy * dy + dz * dz < 7.5) {
+    if (dx * dx + dy * dy + dz * dz < (magnet ? 14 : 7.5)) {
       o.userData.taken = true;
       o.visible = false;
       state.score++;
       sfxPickup();
-      for (let i = 0; i < 5; i++) spawnPuff(o.position.x, o.position.y, o.position.z);
+      spawnBurst(o.position.x, o.position.y, o.position.z, 0xfff2d2, 4);
     }
   }
 }
@@ -1236,9 +1772,11 @@ function updateSnow(dt) {
 
 // ===================== 更新：相机（第三人称越肩） =====================
 function updateCamera(dt) {
-  const spd = state.started ? state.speed : 8;
-  const back = 9.2 + spd * 0.070 + (state.air ? 0.8 : 0);
-  const up = 4.9 + spd * 0.030;
+  const camClose = location.search.includes('cam=close');
+  const spd = state.started && !state.dead ? state.speed : 8;
+  const deadK = state.dead ? Math.min(1, state.deadT * 1.1) : 0;
+  const back = (camClose ? 3.6 : 9.2 + spd * 0.070) + (state.air ? 0.8 : 0) + deadK * 3.4;
+  const up = (camClose ? 1.9 : 4.9 + spd * 0.030) + deadK * 1.5;
 
   const tx = state.x - back;
   const ty = state.y + up;
@@ -1251,7 +1789,7 @@ function updateCamera(dt) {
 
   // 视线目标：角色前方，稍微高一点看路
   const lx = state.x + 14 + spd * 0.20;
-  const ly = state.y + 0.8;
+  const ly = state.y + 0.8 - deadK * 0.5;
   const lz = state.z * 0.85;
   const lk = 1 - Math.pow(0.004, dt);
   camLook.x += (lx - camLook.x) * lk;
@@ -1261,8 +1799,8 @@ function updateCamera(dt) {
   camera.position.copy(camPos);
   camera.lookAt(camLook);
 
-  // 速度带来的视野扩张
-  const targetFov = 60 + Math.min(14, spd * 0.26);
+  // 速度带来的视野扩张（摔倒时轻轻收窄）
+  const targetFov = 60 + Math.min(14, spd * 0.26) - deadK * 4;
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 1.6);
   camera.updateProjectionMatrix();
 
@@ -1338,9 +1876,9 @@ function updateUI(dt) {
   distEl.textContent = String(Math.max(0, Math.floor(state.distance)));
   const kmh = Math.round(state.speed * 3.6);
   speedEl.textContent = String(kmh);
-  speedFillEl.style.height = Math.min(100, (state.speed / 48) * 100) + '%';
+  speedFillEl.style.height = Math.min(100, (state.speed / 62) * 100) + '%';
   orbsEl.textContent = String(state.score);
-  scoreEl.textContent = String(state.flowersN);
+  scoreEl.textContent = String(state.buddies);
   phaseFillEl.style.width = (Math.min(1, state.distance / DIST_FULL) * 100) + '%';
   boostFillEl.style.width = (state.boost * 100) + '%';
   boostWrapEl.classList.toggle('low', state.boost < 0.25);
@@ -1355,9 +1893,12 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   elapsed += dt;
 
-  if (state.started) {
+  if (state.dead) {
+    updateDead(dt, elapsed);
+  } else if (state.started) {
     updateSkier(dt, elapsed);
     updateOrbs(dt, elapsed);
+    updateAnimals(dt, elapsed);
     if (audio.ready && audio.windGain) {
       const target = 0.010 + Math.min(0.055, state.speed * 0.0016);
       audio.windGain.gain.value += (target - audio.windGain.gain.value) * Math.min(1, dt * 2);
@@ -1365,10 +1906,11 @@ function animate() {
   } else {
     skier.position.y = terrainY(0) + Math.sin(elapsed * 1.1) * 0.05;
     skier.rotation.z = Math.sin(elapsed * 0.7) * 0.02;
+    updateAnimals(dt, elapsed);
   }
 
-  updateFlowers(dt, elapsed);
   updatePuffs(dt);
+  updateSparks(dt);
   updateSnow(dt);
   updateCamera(dt);
   updateSky(elapsed);

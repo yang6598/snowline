@@ -10,6 +10,7 @@
     --dim: rgba(255,255,255,0.40);
     --line: rgba(255,255,255,0.14);
     --gold: #ffd8a0;
+    --mint: #8ee6d4;
     --glass: rgba(18,18,32,0.45);
   }
   *{ margin:0; padding:0; box-sizing:border-box; }
@@ -102,16 +103,40 @@
   }
   .boost.low .boost-bar div{ background:linear-gradient(90deg,#ff8f6b,#ffb27a); }
 
-  /* ---------- 花 ---------- */
-  .flowers{
+  /* ---------- 小伙伴 ---------- */
+  .friends{
     position:absolute; right:34px; bottom:34px; text-align:right;
     display:flex; flex-direction:column; align-items:flex-end; gap:5px;
   }
-  .flowers .dot{
-    width:7px; height:7px; border-radius:50%; background:var(--gold);
-    box-shadow:0 0 10px 2px rgba(255,200,120,0.75); margin-bottom:2px;
+  .friends .dot{
+    width:7px; height:7px; border-radius:50%; background:var(--mint);
+    box-shadow:0 0 10px 2px rgba(120,225,200,0.7); margin-bottom:2px;
   }
-  .flowers .v{ font-size:22px; font-weight:200; letter-spacing:1px; color:#fff1d8; }
+  .friends .v{ font-size:22px; font-weight:200; letter-spacing:1px; color:#e6fff8; }
+
+  /* ---------- 效果提示 ---------- */
+  .chip{
+    position:absolute; left:50%; bottom:92px; transform:translateX(-50%) translateY(10px);
+    padding:8px 18px; border-radius:22px; white-space:nowrap;
+    font-size:11px; letter-spacing:3px; color:#fff;
+    background:rgba(18,18,32,0.55); border:1px solid rgba(255,255,255,0.18);
+    backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+    opacity:0; transition:opacity .35s ease, transform .35s ease;
+    box-shadow:0 6px 30px rgba(0,0,0,0.2);
+  }
+  .chip.on{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .pop{
+    position:absolute; left:50%; top:36%; transform:translate(-50%,0);
+    font-size:15px; letter-spacing:5px; color:#fff; opacity:0; text-align:center;
+    text-shadow:0 2px 24px rgba(30,20,50,0.6);
+  }
+  .pop.go{ animation:popUp 1.3s cubic-bezier(.2,.8,.3,1) forwards; }
+  @keyframes popUp{
+    0%{ opacity:0; transform:translate(-50%,14px) scale(.92); }
+    18%{ opacity:1; transform:translate(-50%,0) scale(1); }
+    100%{ opacity:0; transform:translate(-50%,-38px) scale(1); }
+  }
 
   /* ---------- 键位 ---------- */
   .keys{
@@ -183,13 +208,64 @@
     white-space:pre-wrap; font-family:ui-monospace,monospace;
   }
 
+  /* ---------- 摔倒 ---------- */
+  #flash{
+    position:fixed; inset:0; z-index:24; pointer-events:none;
+    background:#fff; opacity:0; transition:opacity .22s ease;
+  }
+  #flash.on{ opacity:.62; }
+
+  #dead{
+    position:fixed; inset:0; z-index:25;
+    display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(circle at 50% 44%,rgba(24,18,40,0.40) 0%,rgba(9,8,18,0.88) 78%);
+    opacity:0; pointer-events:none;
+    transition:opacity .8s ease;
+  }
+  #dead.on{ opacity:1; pointer-events:auto; }
+  #dead .card{
+    text-align:center; transform:translateY(14px) scale(.98);
+    transition:transform .9s cubic-bezier(.2,.85,.3,1);
+  }
+  #dead.on .card{ transform:none; }
+  #dead .em{ font-size:30px; opacity:.9; margin-bottom:14px; }
+  #dead h2{
+    font-size:34px; font-weight:200; letter-spacing:16px; text-indent:16px;
+    text-shadow:0 0 44px rgba(255,205,170,0.35);
+  }
+  #dead .sub{
+    margin-top:14px; font-size:10px; letter-spacing:5px; text-indent:5px;
+    color:rgba(255,255,255,0.44);
+  }
+  #dead .rows{ display:flex; gap:46px; justify-content:center; margin-top:44px; }
+  #dead .rows .r{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  #dead .rows .n{ font-size:25px; font-weight:200; letter-spacing:1px; }
+  #dead .rows .k{ font-size:9px; letter-spacing:3px; color:rgba(255,255,255,0.42); }
+  #dead .rows .r.best .n{ color:#ffd8a0; }
+  #dead button{
+    margin-top:50px; padding:13px 36px; border-radius:30px; cursor:pointer;
+    font-family:inherit; font-size:11px; letter-spacing:6px; text-indent:6px;
+    color:#fff; background:rgba(255,255,255,0.07);
+    border:1px solid rgba(255,255,255,0.22);
+    transition:background .35s ease, border-color .35s ease, transform .35s ease;
+  }
+  #dead button:hover{
+    background:rgba(255,255,255,0.15);
+    border-color:rgba(255,255,255,0.44);
+    transform:translateY(-1px);
+  }
+
   @media (max-width:720px){
     .hud-top{ top:18px; left:18px; right:18px; gap:12px; }
     .stat .v{ font-size:22px; }
     .speed{ left:18px; }
     .speed-bar{ height:80px; }
     .boost{ left:18px; bottom:22px; width:100px; }
-    .flowers{ right:18px; bottom:22px; }
+    .friends{ right:18px; bottom:22px; }
+    .chip{ bottom:76px; font-size:10px; letter-spacing:2px; }
+    #dead h2{ font-size:26px; letter-spacing:10px; text-indent:10px; }
+    #dead .rows{ gap:26px; margin-top:32px; }
+    #dead .rows .n{ font-size:19px; }
     .keys{ gap:12px; padding:7px 12px; }
     .keys .row span{ display:none; }
     .phase{ max-width:150px; }
@@ -232,16 +308,37 @@
     <div class="boost-bar"><div id="boostFill"></div></div>
   </div>
 
-  <div class="flowers">
+  <div class="friends">
     <div class="dot"></div>
     <div class="v"><span id="score">0</span></div>
-    <div class="k">FLOWERS</div>
+    <div class="k">FRIENDS</div>
   </div>
+
+  <div class="chip" id="chip"></div>
+  <div class="pop" id="pop"></div>
 
   <div class="keys" id="keysHint">
     <div class="row"><kbd>A</kbd><kbd>D</kbd><span>转向</span></div>
     <div class="row"><kbd>SPACE</kbd><span>起跳</span></div>
+    <div class="row"><kbd>W</kbd><span>空中翻转</span></div>
     <div class="row"><kbd>SHIFT</kbd><span>冲刺</span></div>
+  </div>
+</div>
+
+<div id="flash"></div>
+
+<div id="dead">
+  <div class="card">
+    <div class="em">❄</div>
+    <h2>摔 倒 了</h2>
+    <div class="sub">头 先 着 地 · 没 能 站 稳</div>
+    <div class="rows">
+      <div class="r"><div class="n" id="dDist">0</div><div class="k">DISTANCE / M</div></div>
+      <div class="r"><div class="n" id="dOrbs">0</div><div class="k">LIGHT</div></div>
+      <div class="r"><div class="n" id="dBuddies">0</div><div class="k">FRIENDS</div></div>
+      <div class="r best"><div class="n" id="dBest">0</div><div class="k">BEST / M</div></div>
+    </div>
+    <button id="againBtn">再 滑 一 次</button>
   </div>
 </div>
 
@@ -252,7 +349,8 @@
   <div class="keys2">
     <div class="row"><kbd>A</kbd><kbd>D</kbd><span>左右转向</span></div>
     <div class="row"><kbd>SPACE</kbd><span>起跳</span></div>
-    <div class="row"><kbd>SHIFT</kbd><span>冲刺加速</span></div>
+    <div class="row"><kbd>W</kbd><span>空中翻转</span></div>
+    <div class="row"><kbd>SHIFT</kbd><span>冲刺</span></div>
   </div>
   <div class="start" id="startBtn">点 击 开 始 下 滑</div>
 </div>

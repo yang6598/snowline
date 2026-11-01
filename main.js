@@ -10,12 +10,12 @@ import * as THREE from 'three';
 const canvas = document.getElementById('c');
 
 // ---- 自适应分辨率：高分屏上 2x 渲染是最大的性能杀手 ----
-const DPR_CAP = 1.5;
+const DPR_CAP = 2.0;
 const dprBase = Math.min(window.devicePixelRatio || 1, DPR_CAP);
 let dprNow = dprBase;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: dprBase <= 1.25,   // 已经超采样时 MSAA 意义不大，省一半填充
+  antialias: true,              // 剪影风格最吃边缘锐利度，MSAA 必须开
   powerPreference: 'high-performance',
   stencil: false,
   alpha: false,
@@ -24,7 +24,8 @@ renderer.setPixelRatio(dprNow);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new THREE.Scene();
-const FOG_NEAR = 210, FOG_FAR = 950;
+// 雾只用来把最远的山吃掉，中景必须锐利 —— 之前 210/950 把整片雪原蒙成灰紫
+const FOG_NEAR = 620, FOG_FAR = 2900;
 scene.fog = new THREE.Fog(0x8a6a7a, FOG_NEAR, FOG_FAR);
 
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.4, 4000);
@@ -83,6 +84,45 @@ function glowTexture() {
 }
 const GLOW = glowTexture();
 
+// 四芒星：光点不再是一颗颗大气泡，而是干干净净的小星星
+function sparkleTexture() {
+  const s = 128, c = s / 2;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = s;
+  const ctx = cv.getContext('2d');
+
+  // 核心光晕（小、收得很紧）
+  const g = ctx.createRadialGradient(c, c, 0, c, c, c * 0.42);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.35, 'rgba(255,250,232,0.72)');
+  g.addColorStop(1, 'rgba(255,238,205,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+
+  // 十字光芒：用两条带渐变的细线，边缘软
+  const drawSpike = (horizontal, len, width, alpha) => {
+    const lg = horizontal
+      ? ctx.createLinearGradient(c - len, 0, c + len, 0)
+      : ctx.createLinearGradient(0, c - len, 0, c + len);
+    lg.addColorStop(0, `rgba(255,246,222,0)`);
+    lg.addColorStop(0.5, `rgba(255,252,240,${alpha})`);
+    lg.addColorStop(1, `rgba(255,246,222,0)`);
+    ctx.fillStyle = lg;
+    if (horizontal) ctx.fillRect(c - len, c - width / 2, len * 2, width);
+    else ctx.fillRect(c - width / 2, c - len, width, len * 2);
+  };
+  ctx.globalCompositeOperation = 'lighter';
+  drawSpike(true, c * 0.96, 5.0, 0.85);
+  drawSpike(false, c * 0.96, 5.0, 0.85);
+  drawSpike(true, c * 0.44, 2.4, 1.0);
+  drawSpike(false, c * 0.44, 2.4, 1.0);
+
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const SPARKLE = sparkleTexture();
+
 // ===================== 天空穹顶 =====================
 const skyUniforms = {
   uTop: { value: new THREE.Color(0x3d3560) },
@@ -131,14 +171,14 @@ const skyDome = new THREE.Mesh(
         // 地平线暖光（用乘法代替 pow，省 ALU）
         float g1 = (h - 0.02) * 6.0;
         float hor = exp(-g1 * g1);
-        col += vec3(1.0, 0.58, 0.34) * hor * 0.10 * (1.0 - uNight);
+        col += vec3(1.0, 0.62, 0.32) * hor * 0.18 * (1.0 - uNight);
 
-        // 低空云带
-        float g2 = (h - 0.085) * 13.0;
+        // 低空云带（收细一点，别把整片天糊成一层灰）
+        float g2 = (h - 0.075) * 16.0;
         float cl = exp(-g2 * g2);
         float cw = 0.45 + 0.55 * sin(d.z * 2.6 + uTime * 0.06) * sin(d.x * 1.4 - uTime * 0.04);
-        vec3 cloudCol = mix(vec3(0.95, 0.80, 0.78), vec3(0.28, 0.33, 0.52), uNight);
-        col = mix(col, cloudCol, cl * 0.30 * (0.4 + 0.6 * cw));
+        vec3 cloudCol = mix(vec3(0.98, 0.84, 0.80), vec3(0.26, 0.31, 0.52), uNight);
+        col = mix(col, cloudCol, cl * 0.17 * (0.4 + 0.6 * cw));
 
         // 太阳（乘法链代替 pow(x, 2/8/42)）
         float sd = max(0.0, dot(d, uSunDir));
@@ -271,14 +311,14 @@ function buildTrack() {
   const dz = (LANE_HALF * 2) / zSeg;
   const pos = [], col = [], idx = [];
 
-  const cCenter = new THREE.Color(0xe9f1fd);
+  const cCenter = new THREE.Color(0xfbfdff);
   const cEdge = new THREE.Color(0xffffff);
-  const cGroove = new THREE.Color(0xccdcf2);
+  const cGroove = new THREE.Color(0xe6effc);
   const tmp = new THREE.Color();
 
   let row = 0;
   for (let x = X_START; x <= X_END; x += dx, row++) {
-    // 雪面明暗褶皱
+    // 雪面明暗褶皱：一道雪浪 + 一层细风纹，像 Alto 那种干净的白
     const fold = 0.5 + 0.5 * Math.sin(x * 0.052 + Math.sin(x * 0.013) * 2.0);
     for (let j = 0; j <= zSeg; j++) {
       const z = -LANE_HALF + j * dz;
@@ -287,9 +327,11 @@ function buildTrack() {
       pos.push(x, y, z);
 
       // 中间被压过的雪道略灰，两侧新雪更白
-      tmp.copy(cGroove).lerp(cCenter, 0.5 + 0.5 * e);
+      tmp.copy(cGroove).lerp(cCenter, 0.35 + 0.65 * e);
       if (e > 0.86) tmp.lerp(cEdge, (e - 0.86) / 0.14 * 0.9);
-      const k = 0.90 + fold * 0.10;
+      // 细风纹只给一点点，太多就脏
+      const ripple = 0.5 + 0.5 * Math.sin(x * 0.31 + z * 0.85);
+      const k = 0.975 + fold * 0.025 + ripple * 0.018;
       col.push(tmp.r * k, tmp.g * k, tmp.b * k);
     }
     if (row > 0) {
@@ -372,6 +414,10 @@ let treeMat = null;
   const trunks = new THREE.InstancedMesh(trunkGeo, mat, count);
   const crowns = new THREE.InstancedMesh(crownGeo, mat, count);
 
+  const cNear = new THREE.Color(0x0d1122);
+  const cFar = new THREE.Color(0x5a6a94);
+  const cTmp = new THREE.Color();
+
   const dummy = new THREE.Object3D();
   let n = 0;
   for (let i = 0; i < count; i++) {
@@ -382,23 +428,30 @@ let treeMat = null;
     const y = canyonY(x, z);
     const h = 3.4 + Math.random() * 3.6;
 
+    // 空气透视：越往两边、越远越浅 —— 剪影才有远近层次
+    cTmp.copy(cNear).lerp(cFar, Math.min(1, (off - 4) / 16) * 0.8);
+
     dummy.position.set(x, y - 0.3, z);
     dummy.rotation.set(0, Math.random() * 6.28, 0);
     dummy.scale.set(1, h * 0.42, 1);
     dummy.updateMatrix();
     trunks.setMatrixAt(n, dummy.matrix);
+    trunks.setColorAt(n, cTmp);
 
     dummy.position.set(x, y - 0.3 + h * 0.30, z);
     dummy.scale.set(h * 0.30, h * 0.82, h * 0.30);
     dummy.rotation.set(0, 0, 0);
     dummy.updateMatrix();
     crowns.setMatrixAt(n, dummy.matrix);
+    crowns.setColorAt(n, cTmp);
     n++;
   }
   trunks.count = n;
   crowns.count = n;
   trunks.instanceMatrix.needsUpdate = true;
   crowns.instanceMatrix.needsUpdate = true;
+  if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
+  if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
   scene.add(trunks, crowns);
 })();
 
@@ -406,6 +459,7 @@ let treeMat = null;
 // 沿 x 轴一次性规划好，运行时用游标推进 → 每帧只检查身边几个，O(1)
 const obstacles = [];
 const ramps = [];
+const gates = [];          // 窄门（穿过 +分）
 let propSeed = 20261101;
 function prnd() {
   propSeed = (propSeed * 1664525 + 1013904223) % 4294967296;
@@ -419,9 +473,33 @@ function prnd() {
     const prog = Math.min(1, x / 2800);
     const ch = x < CH_SPAN[0] ? 0 : x < CH_SPAN[1] ? 1 : 2;
     // 三章不同的密度：一疏一密一险
-    const base = ch === 0 ? 164 - prog * 24 : ch === 1 ? 94 - prog * 18 : 126 - prog * 24;
+    const base = ch === 0 ? 138 - prog * 22 : ch === 1 ? 80 - prog * 16 : 104 - prog * 20;
     x += base * (0.72 + prnd() * 0.66);
     sinceRamp++;
+
+    // ---- 窄门：一排岩石只留一道缝，穿过去有分 ----
+    const gateP = ch === 0 ? 0.10 : ch === 1 ? 0.26 : 0.20;
+    if (prnd() < gateP && x > 320) {
+      const gapC = (prnd() - 0.5) * (LANE_HALF * 1.1);
+      const gapW = 6.4 - prog * 1.6;
+      gates.push({ x: x + 1.2, z: gapC, gapW, done: false });
+      const lo = -LANE_HALF + 1.0, hi = LANE_HALF - 1.0;
+      for (let z = lo; z <= hi; z += 3.2) {
+        const zz = z + (prnd() - 0.5) * 0.5;
+        if (Math.abs(zz - gapC) < gapW * 0.5 + 0.9) continue;
+        obstacles.push({
+          x: x + (prnd() - 0.5) * 1.4,
+          z: zz,
+          kind: 'rock',
+          halfZ: 1.05 + prnd() * 0.45,
+          halfX: 1.15 + prnd() * 0.35,
+          top: 1.15 + prnd() * 0.85,
+          done: false,
+          seed: prnd(),
+        });
+      }
+      continue;
+    }
 
     // 每 3~4 组来一个跳台（第一章跳台多，第二章少见）
     const rampP = ch === 0 ? 0.72 : ch === 1 ? 0.40 : 0.58;
@@ -464,6 +542,7 @@ function prnd() {
   }
   obstacles.sort((a, b) => a.x - b.x);
   ramps.sort((a, b) => a.x - b.x);
+  gates.sort((a, b) => a.x - b.x);
 })();
 
 (function renderProps() {
@@ -563,24 +642,24 @@ const CH_LOOK = [
 let curChapter = 0;
 const cTint = new THREE.Color();
 
-// ---- 第1章：金色浮尘 ----
-const emberN = 380;
+// ---- 第1章：金色浮尘（少量、跟着玩家走，不再满地撒芝麻） ----
+const emberN = 130;
 const emberGeo = new THREE.BufferGeometry();
 const emberPos = new Float32Array(emberN * 3);
 const emberSeed = new Float32Array(emberN * 3);
 for (let i = 0; i < emberN; i++) {
-  const x = -30 + Math.random() * 1000;
-  const z = (Math.random() - 0.5) * 46;
-  emberPos[i * 3] = x;
-  emberPos[i * 3 + 1] = terrainY(x) + 0.6 + Math.random() * 11;
-  emberPos[i * 3 + 2] = z;
   emberSeed[i * 3] = Math.random() * 6.28;
   emberSeed[i * 3 + 1] = 0.35 + Math.random() * 0.9;
-  emberSeed[i * 3 + 2] = Math.random() * 6.28;
+  emberSeed[i * 3 + 2] = Math.random() * 100;
+  // 初始先撒在起点附近；进入游戏后由 updateChapterDeco 跟着玩家 wrap
+  const x0 = -30 + Math.random() * 110;
+  emberPos[i * 3] = x0;
+  emberPos[i * 3 + 1] = terrainY(x0) + 1.1 + Math.random() * 9;
+  emberPos[i * 3 + 2] = (Math.random() - 0.5) * 44;
 }
 emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
 const emberMat = new THREE.PointsMaterial({
-  size: 0.62, color: 0xffcf8a, map: GLOW, transparent: true, opacity: 0.85,
+  size: 0.55, color: 0xffd9a0, map: GLOW, transparent: true, opacity: 0.5,
   depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
 });
 const emberPts = new THREE.Points(emberGeo, emberMat);
@@ -588,6 +667,7 @@ emberPts.frustumCulled = false;
 scene.add(emberPts);
 
 // ---- 第2章：星灯（细杆 + 灯） ----
+let lampPoles = null, lampBalls = null;   // 引用留给章节显隐
 const lampN = 66;
 const lampX = [], lampZ = [];
 for (let i = 0; i < lampN; i++) {
@@ -619,6 +699,8 @@ for (let i = 0; i < lampN; i++) {
   }
   poles.instanceMatrix.needsUpdate = true;
   balls.instanceMatrix.needsUpdate = true;
+  lampPoles = poles;
+  lampBalls = balls;
   scene.add(poles, balls);
 }
 // 灯的光晕
@@ -641,6 +723,7 @@ lampGlowPts.frustumCulled = false;
 scene.add(lampGlowPts);
 
 // ---- 第3章：冰晶柱 ----
+let iceMeshRef = null;
 (function buildIceSpires() {
   const N = 120;
   const g = new THREE.OctahedronGeometry(1, 0);
@@ -660,6 +743,7 @@ scene.add(lampGlowPts);
     mesh.setMatrixAt(i, dm.matrix);
   }
   mesh.instanceMatrix.needsUpdate = true;
+  iceMeshRef = mesh;
   scene.add(mesh);
 })();
 
@@ -718,7 +802,7 @@ function inIce(x) {
 
 // 章节装饰动画
 function updateChapterDeco(dt, t) {
-  // 浮尘缓慢上浮
+  // 浮尘缓慢上浮 + 跟着玩家 wrap
   const ea = emberGeo.attributes.position.array;
   for (let i = 0; i < emberN; i++) {
     const ph = emberSeed[i * 3];
@@ -726,7 +810,15 @@ function updateChapterDeco(dt, t) {
     ea[i * 3 + 1] += sp * dt * 0.55;
     ea[i * 3] += Math.sin(t * 0.6 + ph) * dt * 0.5;
     const base = terrainY(ea[i * 3]) + 0.4;
-    if (ea[i * 3 + 1] > base + 15) ea[i * 3 + 1] = base;
+    if (ea[i * 3 + 1] > base + 11) ea[i * 3 + 1] = base;
+    // 落到玩家身后太远 / 冲到前面太远 → 挪回玩家周围
+    const rel = ea[i * 3] - state.x;
+    if (rel < -26 || rel > 92) {
+      const x = state.x - 22 + Math.random() * 112;
+      ea[i * 3] = x;
+      ea[i * 3 + 1] = terrainY(x) + 1.1 + Math.random() * 8;
+      ea[i * 3 + 2] = (Math.random() - 0.5) * 44;
+    }
   }
   emberGeo.attributes.position.needsUpdate = true;
 
@@ -1198,9 +1290,9 @@ function updateAnimals(dt, t) {
 }
 
 // ===================== 收集光点（成串的光带） =====================
-const ORB_GAP = 42;
-const ORB_COUNT = Math.floor((X_END - X_START - 120) / ORB_GAP);
-const ORB_CHAIN = 7;                     // 每串 7 颗
+const ORB_GAP = 96;
+const ORB_COUNT = Math.floor((X_END - X_START - 160) / ORB_GAP);
+const ORB_CHAIN = 5;                     // 每串 5 颗
 const orbs = [];
 const orbGroup = new THREE.Group();
 scene.add(orbGroup);
@@ -1217,8 +1309,8 @@ for (let i = 0; i < ORB_COUNT; i++) {
   if (k === 0) orbChains.push({ total: ORB_CHAIN, got: 0, done: false });
 
   const s = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: GLOW, color: 0xfff2d2, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 1, fog: false,
+    map: SPARKLE, color: 0xfff4dc, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.92, fog: false,
   }));
 
   const x = 60 + i * ORB_GAP;
@@ -1231,7 +1323,7 @@ for (let i = 0; i < ORB_COUNT; i++) {
   const lift = Math.sin(u * Math.PI) * (1.1 + chainRnd(gid, 4) * 1.6);
 
   s.position.set(x, terrainY(x) + bank(z) + 1.9 + lift, z);
-  const sc = 1.65 + chainRnd(gid, 5) * 0.45;
+  const sc = 1.05 + chainRnd(gid, 5) * 0.30;
   s.scale.setScalar(sc);
   s.userData = {
     taken: false, baseY: s.position.y, phase: chainRnd(gid, 6) * 6.28, baseScale: sc,
@@ -1267,7 +1359,7 @@ const state = {
   z: 0,
   y: terrainY(0),
   vz: 0,
-  speed: 10,
+  speed: 14,
   vy: 0,
   air: false,
   started: false,
@@ -1299,6 +1391,128 @@ const state = {
 let obsCur = 0;
 let rampCur = 0;
 
+// ===================== 滑痕：雪面上两道上过光的刻线 =====================
+// Alto 那种「你去过哪里，雪记得」的痕迹 —— 只用一条环形缓冲的三角带，几乎不耗性能
+const CARVE_N = 120;
+const CARVE_HALF = 0.50;
+const carveGeo = new THREE.BufferGeometry();
+const carvePos = new Float32Array(CARVE_N * 2 * 3);
+const carveCol = new Float32Array(CARVE_N * 2 * 3);
+const carveIdx = [];
+for (let i = 0; i < CARVE_N - 1; i++) {
+  const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
+  carveIdx.push(a, b, c, b, d, c);
+}
+carveGeo.setAttribute('position', new THREE.BufferAttribute(carvePos, 3));
+carveGeo.setAttribute('color', new THREE.BufferAttribute(carveCol, 3));
+carveGeo.setIndex(carveIdx);
+carveGeo.setDrawRange(0, 0);
+const carveMat = new THREE.MeshBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.55,
+  depthWrite: false, side: THREE.DoubleSide, fog: true,
+  polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
+});
+const carveMesh = new THREE.Mesh(carveGeo, carveMat);
+carveMesh.frustumCulled = false;
+carveMesh.renderOrder = 1;
+carveMesh.visible = !new URLSearchParams(location.search).has('nocarve'); // 调试开关
+scene.add(carveMesh);
+
+const carveBuf = [];       // 环形缓冲：{x, yl, yr, zl, zr}
+let carveLastX = -1e9;
+
+function carveReset() {
+  carveBuf.length = 0;
+  carveLastX = -1e9;
+  carveGeo.setDrawRange(0, 0);
+}
+
+function updateCarve() {
+  // 只有真正踩在雪上才留痕
+  if (!state.started || state.dead || state.arrived || state.air) return;
+  if (state.x - carveLastX < 1.05) return;
+  carveLastX = state.x;
+
+  const half = CARVE_HALF + Math.min(0.30, state.speed * 0.007);
+  const zl = state.z - half, zr = state.z + half;
+  carveBuf.push({
+    x: state.x,
+    zl, zr,
+    yl: terrainY(state.x) + bank(zl) + 0.055,
+    yr: terrainY(state.x) + bank(zr) + 0.055,
+  });
+  if (carveBuf.length > CARVE_N) carveBuf.shift();
+
+  const n = carveBuf.length;
+  for (let i = 0; i < n; i++) {
+    const p = carveBuf[i];
+    const u = i / Math.max(1, n - 1);
+    // 越新越深、越旧越淡（直接淡到雪色，视觉上自然消失）
+    const k = 0.72 + u * 0.24;
+    // 淡蓝灰刻线：新的深、旧的渐隐到雪色
+    const r = 0.60 + (1 - k) * 0.42, g = 0.71 + (1 - k) * 0.34, b = 0.87 + (1 - k) * 0.20;
+    const o = i * 6;
+    carvePos[o] = p.x; carvePos[o + 1] = p.yl; carvePos[o + 2] = p.zl;
+    carvePos[o + 3] = p.x; carvePos[o + 4] = p.yr; carvePos[o + 5] = p.zr;
+    carveCol[o] = r; carveCol[o + 1] = g; carveCol[o + 2] = b;
+    carveCol[o + 3] = r; carveCol[o + 4] = g; carveCol[o + 5] = b;
+  }
+  carveGeo.attributes.position.needsUpdate = true;
+  carveGeo.attributes.color.needsUpdate = true;
+  carveGeo.setDrawRange(0, Math.max(0, (n - 1) * 6));
+}
+
+// ===================== 速度风线：快的时候空气是能看见的 =====================
+const WIND_N = 46;
+const windGeo = new THREE.BufferGeometry();
+const windPos = new Float32Array(WIND_N * 6);
+windGeo.setAttribute('position', new THREE.BufferAttribute(windPos, 3));
+const windMat = new THREE.LineBasicMaterial({
+  color: 0xe6f4ff, transparent: true, opacity: 0,
+  depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+});
+const windLines = new THREE.LineSegments(windGeo, windMat);
+windLines.frustumCulled = false;
+scene.add(windLines);
+
+const windSeeds = [];
+for (let i = 0; i < WIND_N; i++) {
+  windSeeds.push({
+    dx: -25 + Math.random() * 80,
+    dy: 0.7 + Math.random() * 11,
+    dz: (Math.random() - 0.5) * 34,
+    len: 5 + Math.random() * 9,
+  });
+}
+
+function updateWind(dt) {
+  const spd = state.speed;
+  const on = state.started && !state.dead && spd > 22;
+  const target = on ? Math.min(0.42, (spd - 22) / 60) : 0;
+  windMat.opacity += (target - windMat.opacity) * Math.min(1, dt * 5);
+  if (windMat.opacity < 0.01) { windLines.visible = false; return; }
+  windLines.visible = true;
+
+  const arr = windPos;
+  for (let i = 0; i < WIND_N; i++) {
+    const w = windSeeds[i];
+    w.dx -= spd * 1.55 * dt;
+    if (w.dx < -28) {
+      w.dx = 46 + Math.random() * 24;
+      w.dy = 0.7 + Math.random() * 11;
+      w.dz = (Math.random() - 0.5) * 34;
+      w.len = 5 + Math.random() * 9;
+    }
+    const bx = state.x + w.dx;
+    const by = state.y + w.dy;
+    const bz = state.z + w.dz;
+    const o = i * 6;
+    arr[o] = bx; arr[o + 1] = by; arr[o + 2] = bz;
+    arr[o + 3] = bx + w.len; arr[o + 4] = by; arr[o + 5] = bz;
+  }
+  windGeo.attributes.position.needsUpdate = true;
+}
+
 // 剧情旁白与雪崩（提前声明，避免初始化顺序问题）
 let storyPtr = 0;
 let narrT = 0;
@@ -1312,15 +1526,15 @@ const avaPuffs = [];
 for (let i = 0; i < 62; i++) {
   // 深蓝灰的翻滚云墙：普通混合，在亮雪地和暗天空里都看得见
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: GLOW, color: 0x272f4e, transparent: true,
+    // 中间调青灰：亮雪面前显暗、暗夜空前显亮，昼夜都看得见
+    map: GLOW, color: 0x93a7cc, transparent: true,
     opacity: 0.5, depthWrite: false, fog: false,
   }));
   sp.userData = {
-    // 关键：让雪云向玩家前方溢出一段，否则第三人称镜头永远拍不到身后的雪崩
     dx: -36 + Math.pow(Math.random(), 0.62) * 94,
     dy: Math.pow(Math.random(), 0.85) * 23,
-    dz: (Math.random() - 0.5) * 116,
-    sz: 4 + Math.random() * 13,
+    dz: (Math.random() - 0.5) * 76,
+    sz: 4 + Math.random() * 12,
     ph: Math.random() * 6.28,
     sp2: 0.6 + Math.random() * 0.9,
   };
@@ -1339,8 +1553,8 @@ for (let i = 0; i < 44; i++) {
   sp.userData = {
     dx: -24 + Math.random() * 76,
     dy: 5 + Math.random() * 16,
-    dz: (Math.random() - 0.5) * 84,
-    sz: 2.4 + Math.random() * 6,
+    dz: (Math.random() - 0.5) * 52,
+    sz: 1.8 + Math.random() * 2.8,
     ph: Math.random() * 6.28,
     sp2: 0.6 + Math.random() * 0.9,
   };
@@ -1351,7 +1565,7 @@ for (let i = 0; i < 44; i++) {
 
 // 雪崩溢出的雪雾：飘到玩家前方的高空，让"身后有东西在追"这件事看得见
 const avaMist = [];
-for (let i = 0; i < 14; i++) {
+for (let i = 0; i < 9; i++) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({
     map: GLOW, color: 0xe6f3ff, transparent: true,
     blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, fog: false,
@@ -1360,7 +1574,7 @@ for (let i = 0; i < 14; i++) {
     fx: 6 + Math.random() * 78,
     fy: 3 + Math.random() * 17,
     fz: (Math.random() - 0.5) * 86,
-    sz: 13 + Math.random() * 22,
+    sz: 6.5 + Math.random() * 8.5,
     ph: Math.random() * 6.28,
   };
   sp.scale.setScalar(sp.userData.sz);
@@ -2386,6 +2600,22 @@ function updateProps(dt) {
     spawnBurst(state.x, state.y + 0.7, state.z, 0xffe0b0, 8);
   }
 
+  // ---- 窄门：穿过去有奖励 ----
+  for (const g of gates) {
+    if (g.done || g.x > state.x + 20) continue;
+    if (g.x < state.prevX) { g.done = true; continue; }
+    if (state.prevX < g.x && state.x >= g.x) {
+      g.done = true;
+      if (Math.abs(state.z - g.z) < g.gapW * 0.5 + 0.4) {
+        addCombo(48);
+        state.boost = Math.min(1, state.boost + 0.16);
+        showPop('缝 隙 穿 越');
+        spawnBurst(state.x, state.y + 1.0, state.z, 0xbef2ff, 10);
+        sfxAnimal();
+      }
+    }
+  }
+
   // ---- 障碍 ----
   while (obsCur < obstacles.length && obstacles[obsCur].x < state.prevX - 14) obsCur++;
   for (let i = obsCur; i < obstacles.length; i++) {
@@ -2518,7 +2748,7 @@ function updateAvalanche(dt, t) {
       gy + u.dy + Math.sin(t * 1.4 + u.ph) * 1.4,
       u.dz + Math.cos(t * 1.1 + u.ph) * 3
     );
-    p.material.opacity = (0.45 + 0.35 * (0.5 + 0.5 * Math.sin(t * 2.6 + u.ph))) * front;
+    p.material.opacity = (0.30 + 0.22 * (0.5 + 0.5 * Math.sin(t * 2.6 + u.ph))) * front;
     p.scale.setScalar(u.sz * (1 + Math.sin(t * 1.8 + u.ph) * 0.16));
   }
 
@@ -2535,7 +2765,7 @@ function updateAvalanche(dt, t) {
       state.y + u.fy,
       u.fz + Math.cos(t * 0.42 + u.ph) * 4
     );
-    m.material.opacity = (0.06 + danger * 0.26) * (0.6 + 0.4 * Math.sin(t * 0.9 + u.ph));
+    m.material.opacity = (0.05 + danger * 0.16) * (0.6 + 0.4 * Math.sin(t * 0.9 + u.ph));
   }
 
   if (behind < 6.5) crash('被 雪 埋 住 了');
@@ -2577,11 +2807,11 @@ function updateSkier(dt, t) {
 
   if (!state.air) {
     const accel = -slope * 40;
-    state.speed += (accel - 2.6) * dt;
+    state.speed += (accel - 1.9) * dt;
     if (onIce) state.speed += 7 * dt;          // 冰面更快也更难控
-    if (wantBoost) state.speed += (boosted ? 32 : 17) * dt;
+    if (wantBoost) state.speed += (boosted ? 34 : 18) * dt;
     // 上限随距离提升：越往后越疯
-    const cap = (boosted ? 62 : 48) + Math.min(15, state.distance * 0.0055);
+    const cap = (boosted ? 74 : 58) + Math.min(22, state.distance * 0.0068);
     state.speed = Math.max(6, Math.min(cap, state.speed));
 
     state.x += Math.cos(ang) * state.speed * dt;
@@ -2776,6 +3006,7 @@ function updateDead(dt, t) {
 
 function resetRun() {
   deadEl.classList.remove('on');
+  carveReset();
   for (const o of orbs) {
     o.userData.taken = false;
     o.visible = true;
@@ -2803,7 +3034,7 @@ function resetRun() {
   state.z = 0;
   state.y = terrainY(0);
   state.vz = 0;
-  state.speed = 10;
+  state.speed = runMode === 'avalanche' ? 22 : 14;
   state.vy = 0;
   state.air = false;
   state.score = 0;
@@ -3168,15 +3399,17 @@ function updateCamera(dt, t) {
 
 // ===================== 天色 =====================
 const PHASES = [
-  { t: 0.00, top: 0x3b3768, mid: 0x8a5c72, bot: 0xf0a877 },
-  { t: 0.42, top: 0x232a5c, mid: 0x4a3a6a, bot: 0xa06a80 },
-  { t: 0.72, top: 0x0e1533, mid: 0x1b2b52, bot: 0x40547e },
-  { t: 1.00, top: 0x081f33, mid: 0x0d4450, bot: 0x2f6d66 },
+  // Alto 式：三段分明的色带，而不是一锅浑汤
+  { t: 0.00, top: 0x2a2466, mid: 0xd4727e, bot: 0xffc182 },
+  { t: 0.42, top: 0x1b2058, mid: 0x6a4580, bot: 0xc07a84 },
+  { t: 0.72, top: 0x0a1030, mid: 0x17264e, bot: 0x3c5280 },
+  { t: 1.00, top: 0x061a2e, mid: 0x0c4050, bot: 0x2f7a70 },
 ];
 const cA = new THREE.Color();
 const cB = new THREE.Color();
 const cC = new THREE.Color();
 const cD = new THREE.Color();
+const cWhite = new THREE.Color(0xffffff);
 
 function updateSky(t) {
   const inRun = appMode === 'play' || appMode === 'shop';
@@ -3233,6 +3466,7 @@ function updateSky(t) {
   cC.copy(cA.setHex(0xffffff)).lerp(cB.setHex(0xb2c6ec), night);
   if (aurora > 0) cC.lerp(cD.setHex(0xaddfd6), aurora * 0.75);
   if (snowTintMat) snowTintMat.color.copy(cC);
+  if (carveMat) carveMat.color.copy(cC);
 
   // 星与雪粒在夜里更亮
   snowMat.opacity = 0.42 + night * 0.28;
@@ -3240,7 +3474,19 @@ function updateSky(t) {
   // 峡谷与树影按章节调色温 —— 三章一眼能分出来
   cTint.setHex(CH_LOOK[chIdx].tint);
   for (const m of canyonMats) m.color.copy(cTint);
-  if (treeMat) treeMat.color.setHex(0x151a2e).lerp(cTint, 0.26);
+  // 树的实体色由 instanceColor 决定，这里只叠一层很淡的章节色温
+  if (treeMat) treeMat.color.copy(cTint).lerp(cWhite, 0.82);
+
+  // 章节专属装饰只在自己那章出现
+  if (emberPts) emberPts.visible = chIdx === 0;
+  if (lampPoles) {
+    const on = chIdx === 1;
+    lampPoles.visible = on;
+    lampBalls.visible = on;
+    lampGlowPts.visible = on;
+  }
+  if (iceMeshRef) iceMeshRef.visible = chIdx === 2;
+  if (veilPts) veilPts.visible = chIdx === 2;
 }
 
 // ===================== UI =====================
@@ -3294,16 +3540,17 @@ function autoRes(raw) {
   frameN = 0;
   if (dprHold > 0) { dprHold--; return; }
 
-  if (avg > 0.024 && dprNow > 0.70) {
-    dprNow = Math.max(0.70, dprNow * 0.85);
+  // 分辨率不再往 0.7 掉——那才是"糊"的元凶。宁可少几颗粒子，也要保住边缘锐利
+  if (avg > 0.024 && dprNow > 0.92) {
+    dprNow = Math.max(0.92, dprNow * 0.88);
+    renderer.setPixelRatio(dprNow);
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    dprHold = 4;
+  } else if (avg < 0.0192 && dprNow < dprBase - 0.01) {
+    dprNow = Math.min(dprBase, dprNow * 1.08);
     renderer.setPixelRatio(dprNow);
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     dprHold = 2;
-  } else if (avg < 0.0165 && dprNow < dprBase - 0.01) {
-    dprNow = Math.min(dprBase, dprNow * 1.06);
-    renderer.setPixelRatio(dprNow);
-    renderer.setSize(window.innerWidth, window.innerHeight, false);
-    dprHold = 3;
   }
 }
 
@@ -3321,6 +3568,7 @@ function animate() {
     updateAnimals(dt, elapsed);
   } else if (state.started) {
     updateSkier(dt, elapsed);
+    updateCarve();
     updateProps(dt);
     updateOrbs(dt, elapsed);
     updateAnimals(dt, elapsed);
@@ -3340,6 +3588,7 @@ function animate() {
   updatePuffs(dt);
   updateSparks(dt);
   updateSnow(dt);
+  updateWind(dt);
   updateChapterDeco(dt, elapsed);
   updateCamera(dt, elapsed);
   updateSky(elapsed);

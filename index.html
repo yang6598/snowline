@@ -165,6 +165,16 @@
     font-size:15px; letter-spacing:5px; color:#fff; opacity:0; text-align:center;
     text-shadow:0 2px 24px rgba(30,20,50,0.6);
   }
+
+  /* 当前章节铭牌 */
+  .chap-tag{
+    position:absolute; left:50%; top:76px; transform:translateX(-50%);
+    font-size:9px; letter-spacing:5.5px; text-indent:5.5px; white-space:nowrap;
+    color:rgba(255,240,220,0.66);
+    text-shadow:0 1px 5px rgba(30,24,50,0.9), 0 0 18px rgba(30,24,50,0.5);
+    opacity:0; transition:opacity 1s ease;
+  }
+  .chap-tag.on{ opacity:1; }
   .pop.go{ animation:popUp 1.3s cubic-bezier(.2,.8,.3,1) forwards; }
   @keyframes popUp{
     0%{ opacity:0; transform:translate(-50%,14px) scale(.92); }
@@ -508,6 +518,16 @@
   }
   #flash.on{ opacity:.62; }
 
+  /* 雪崩追击：从画面下缘与两侧涌上来的雪雾 */
+  #avaVeil{
+    position:fixed; inset:0; z-index:12; pointer-events:none;
+    opacity:0; transition:opacity .22s linear;
+    background:
+      radial-gradient(120% 66% at 50% 120%, rgba(255,255,255,.95) 0%, rgba(228,242,255,.52) 30%, rgba(200,226,255,0) 62%),
+      radial-gradient(46% 96% at -4% 62%, rgba(255,255,255,.52), rgba(255,255,255,0) 62%),
+      radial-gradient(46% 96% at 104% 62%, rgba(255,255,255,.52), rgba(255,255,255,0) 62%);
+  }
+
   #dead{
     position:fixed; inset:0; z-index:25;
     display:flex; align-items:center; justify-content:center;
@@ -707,6 +727,7 @@
 
   <div class="chip" id="chip"></div>
   <div class="pop" id="pop"></div>
+  <div class="chap-tag" id="chapTag"></div>
 
   <div id="narr">
     <div class="who" id="narrWho">阿 岚</div>
@@ -722,6 +743,7 @@
 </div>
 
 <div id="flash"></div>
+<div id="avaVeil"></div>
 
 <!-- ============ 主菜单 ============ -->
 <div id="menu" class="screen">

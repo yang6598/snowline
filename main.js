@@ -10,14 +10,18 @@ import * as THREE from 'three';
 const canvas = document.getElementById('c');
 
 // ---- 自适应分辨率：高分屏上 2x 渲染是最大的性能杀手 ----
-const DPR_CAP = 2.0;
+// 关键取舍：高 DPI 屏用「1.6 倍超采样 + 关 MSAA」代替「2 倍超采样 + 4x MSAA」，
+// 边缘一样干净，像素填充量只有原来的 1/3。
+const DPR_CAP = 1.6;
 const dprBase = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+const superSample = dprBase >= 1.4;        // 已经有超采样，MSAA 就是纯浪费
 let dprNow = dprBase;
 const renderer = new THREE.WebGLRenderer({
   canvas,
-  antialias: true,              // 剪影风格最吃边缘锐利度，MSAA 必须开
+  antialias: !superSample,
   powerPreference: 'high-performance',
   stencil: false,
+  depth: true,
   alpha: false,
 });
 renderer.setPixelRatio(dprNow);
@@ -644,6 +648,7 @@ const cTint = new THREE.Color();
 
 // ---- 第1章：金色浮尘（少量、跟着玩家走，不再满地撒芝麻） ----
 const emberN = 130;
+let emberActive = emberN;   // 画质分级会下调
 const emberGeo = new THREE.BufferGeometry();
 const emberPos = new Float32Array(emberN * 3);
 const emberSeed = new Float32Array(emberN * 3);
@@ -760,7 +765,7 @@ const veilGeo = new THREE.BufferGeometry();
   veilGeo.setAttribute('position', new THREE.BufferAttribute(p, 3));
 }
 const veilMat = new THREE.PointsMaterial({
-  size: 1.9, color: 0x8fffdc, map: GLOW, transparent: true, opacity: 0.5,
+  size: 1.05, color: 0x8fffdc, map: GLOW, transparent: true, opacity: 0.30,
   depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
 });
 const veilPts = new THREE.Points(veilGeo, veilMat);
@@ -801,10 +806,15 @@ function inIce(x) {
 }
 
 // 章节装饰动画
+let decoTick = 0;
 function updateChapterDeco(dt, t) {
+  decoTick = (decoTick + 1) % 2;
+  if (decoTick) return;
+  dt *= 2;
   // 浮尘缓慢上浮 + 跟着玩家 wrap
+  if (emberActive > 0) {
   const ea = emberGeo.attributes.position.array;
-  for (let i = 0; i < emberN; i++) {
+  for (let i = 0; i < emberActive; i++) {
     const ph = emberSeed[i * 3];
     const sp = emberSeed[i * 3 + 1];
     ea[i * 3 + 1] += sp * dt * 0.55;
@@ -821,13 +831,14 @@ function updateChapterDeco(dt, t) {
     }
   }
   emberGeo.attributes.position.needsUpdate = true;
+  }
 
   // 星灯呼吸
   lampGlowMat.opacity = 0.52 + 0.26 * (0.5 + 0.5 * Math.sin(t * 1.6));
   lampGlowMat.size = 2.3 + 0.22 * Math.sin(t * 2.1);
 
   // 极光垂帘飘动
-  veilMat.opacity = 0.32 + 0.24 * (0.5 + 0.5 * Math.sin(t * 0.9));
+  veilMat.opacity = 0.15 + 0.13 * (0.5 + 0.5 * Math.sin(t * 0.9));
 }
 
 // ===================== 主角：小雪团（可爱向） =====================
@@ -1260,7 +1271,12 @@ function pickAnimal(a) {
 }
 
 function updateAnimals(dt, t) {
+  // 距离剔除：雾会吞掉 1000m 外的东西，根本没必要渲染（每只小动物 15+ 个网格）
   for (const a of animals) {
+    const rel = a.position.x - state.x;
+    const u0 = a.userData;
+    a.visible = rel > -90 && rel < 1000 && (!u0.taken || u0.fade > 0);
+  }  for (const a of animals) {
     const u = a.userData;
     if (u.taken) {
       if (u.fade > 0) {
@@ -1335,7 +1351,8 @@ for (let i = 0; i < ORB_COUNT; i++) {
 document.getElementById('orbs').parentElement.querySelector('em').textContent = '/ ' + ORB_COUNT;
 
 // ===================== 飘雪 =====================
-const SNOW_N = 360;
+const SNOW_N = 260;
+let snowActive = SNOW_N;   // 画质分级会下调
 const snowGeo = new THREE.BufferGeometry();
 const snowPos = new Float32Array(SNOW_N * 3);
 for (let i = 0; i < SNOW_N; i++) {
@@ -1487,7 +1504,7 @@ for (let i = 0; i < WIND_N; i++) {
 
 function updateWind(dt) {
   const spd = state.speed;
-  const on = state.started && !state.dead && spd > 22;
+  const on = windAllowed && state.started && !state.dead && spd > 22;
   const target = on ? Math.min(0.42, (spd - 22) / 60) : 0;
   windMat.opacity += (target - windMat.opacity) * Math.min(1, dt * 5);
   if (windMat.opacity < 0.01) { windLines.visible = false; return; }
@@ -2105,6 +2122,7 @@ const distEl = document.getElementById('dist');
 const speedEl = document.getElementById('speedVal');
 const speedFillEl = document.getElementById('speedFill');
 const orbsEl = document.getElementById('orbs');
+const fpsEl = document.getElementById('fpsVal');
 const scoreEl = document.getElementById('score');
 const phaseFillEl = document.getElementById('phaseFill');
 const boostFillEl = document.getElementById('boostFill');
@@ -3091,41 +3109,56 @@ function restart() {
 
 // ===================== 更新：粒子 =====================
 const puffs = [];
-function spawnPuff(x, y, z) {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: GLOW, color: 0xffffff, transparent: true,
-    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.85, fog: false,
+// ---- 雪雾 / 火花对象池：以前每颗粒子都 new Sprite+Material 再销毁， GC 和编译开销都不小 ----
+function makeSprite(color) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: GLOW, color, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
   }));
+  sp.visible = false;
+  scene.add(sp);
+  return sp;
+}
+const puffPool = [];
+for (let i = 0; i < 80; i++) puffPool.push({ sp: makeSprite(0xffffff), busy: false });
+const sparkPool = [];
+for (let i = 0; i < 64; i++) sparkPool.push({ sp: makeSprite(0xffffff), busy: false });
+
+function takeFrom(pool) {
+  for (const it of pool) if (!it.busy) { it.busy = true; return it; }
+  return null;
+}
+
+function spawnPuff(x, y, z) {
+  const it = takeFrom(puffPool);
+  if (!it) return;
+  const s = it.sp;
+  s.visible = true;
   s.position.set(x + (Math.random() - 0.5) * 1.2, y + 0.2, z + (Math.random() - 0.5) * 1.2);
   s.scale.setScalar(1);
   s.userData.life = 0.55;
-  scene.add(s);
-  puffs.push(s);
 }
 function updatePuffs(dt) {
-  for (let i = puffs.length - 1; i >= 0; i--) {
-    const p = puffs[i];
+  for (const it of puffPool) {
+    if (!it.busy) continue;
+    const p = it.sp;
     p.userData.life -= dt;
+    if (p.userData.life <= 0) { p.visible = false; it.busy = false; continue; }
     p.position.y += dt * 1.4;
     p.position.x -= dt * 2.4;
-    p.material.opacity = Math.max(0, p.userData.life * 1.5);
+    p.material.opacity = Math.min(0.85, p.userData.life * 1.5);
     p.scale.setScalar(1 + (0.55 - p.userData.life) * 5.5);
-    if (p.userData.life <= 0) {
-      scene.remove(p);
-      p.material.dispose();
-      puffs.splice(i, 1);
-    }
   }
 }
 
 // ===================== 彩色光点爆发（碰到小动物 / 完美落地） =====================
-const sparks = [];
 function spawnBurst(x, y, z, color, n) {
   for (let i = 0; i < n; i++) {
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: GLOW, color, transparent: true,
-      blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.95, fog: false,
-    }));
+    const it = takeFrom(sparkPool);
+    if (!it) return;
+    const s = it.sp;
+    s.visible = true;
+    s.material.color.setHex(color);
     s.position.set(x, y, z);
     const a = Math.random() * Math.PI * 2;
     const r = 2.4 + Math.random() * 4.2;
@@ -3137,15 +3170,15 @@ function spawnBurst(x, y, z, color, n) {
       vy: 1.6 + Math.random() * 3.6,
       vz: Math.sin(a) * r,
     };
-    scene.add(s);
-    sparks.push(s);
   }
 }
 function updateSparks(dt) {
-  for (let i = sparks.length - 1; i >= 0; i--) {
-    const s = sparks[i];
+  for (const it of sparkPool) {
+    if (!it.busy) continue;
+    const s = it.sp;
     const u = s.userData;
     u.life -= dt;
+    if (u.life <= 0) { s.visible = false; it.busy = false; continue; }
     u.vy -= 6 * dt;
     s.position.x += u.vx * dt;
     s.position.y += u.vy * dt;
@@ -3154,11 +3187,6 @@ function updateSparks(dt) {
     u.vz *= Math.pow(0.12, dt);
     s.material.opacity = Math.max(0, u.life / u.max) * 0.95;
     s.scale.setScalar(0.4 + (1 - u.life / u.max) * 0.9);
-    if (u.life <= 0) {
-      scene.remove(s);
-      s.material.dispose();
-      sparks.splice(i, 1);
-    }
   }
 }
 
@@ -3167,6 +3195,11 @@ function updateOrbs(dt, t) {
   const magnet = state.fx.magnet > 0;
   for (const o of orbs) {
     if (o.userData.taken) continue;
+
+    // 距离剔除：1000m 外的光点雾里根本看不见，关掉这 70 个精灵的绘制
+    const rx = o.position.x - state.x;
+    o.visible = rx > -60 && rx < 1000;
+    if (!o.visible) continue;
 
     // 只在角色附近做动画与判定（远处光点保持静止，省下大量计算）
     const ax = o.position.x - state.x;
@@ -3227,14 +3260,19 @@ function updateOrbs(dt, t) {
   }
 }
 
+let snowTick = 0;
 function updateSnow(dt) {
-  snowPts.visible = appMode !== 'shop';
+  snowPts.visible = appMode !== 'shop' && snowActive > 0;
+  // 30Hz 更新足够肉眼连续，省一半 CPU 与一次整块 buffer 上传
+  snowTick ^= 1;
+  if (snowTick) return;
+  const d2 = dt * 2;
   const arr = snowGeo.attributes.position.array;
   const cx = camPos.x, cy = camPos.y, cz = camPos.z;
   const flow = state.started ? state.speed * 0.42 + 4 : 2;
-  for (let i = 0; i < SNOW_N; i++) {
-    arr[i * 3] -= flow * dt;
-    arr[i * 3 + 1] -= dt * (1.2 + (i % 7) * 0.2);
+  for (let i = 0; i < snowActive; i++) {
+    arr[i * 3] -= flow * d2;
+    arr[i * 3 + 1] -= d2 * (1.2 + (i % 7) * 0.2);
     if (arr[i * 3] < cx - 34 || arr[i * 3 + 1] < cy - 14) {
       arr[i * 3] = cx + 20 + Math.random() * 65;
       arr[i * 3 + 1] = cy - 8 + Math.random() * 30;
@@ -3524,33 +3562,66 @@ function updateUI(dt) {
   }
 }
 
+// ===================== 画质分级 =====================
+// 掉帧时先砍「体积小、感知弱」的特效，最后才动分辨率（降分辨率最伤清晰度）
+let quality = 0;                 // 0 高 / 1 中 / 2 低
+let windAllowed = true;
+const QUALITY = [
+  { snow: 260, ember: 130, star: 280, trail: true,  wind: true  },
+  { snow: 170, ember: 80,  star: 170, trail: true,  wind: true  },
+  { snow: 90,  ember: 45,  star: 110, trail: false, wind: false },
+];
+const qOverride = new URLSearchParams(location.search).get('q');
+function applyQuality() {
+  const q = QUALITY[quality];
+  snowActive = Math.min(SNOW_N, q.snow);
+  snowGeo.setDrawRange(0, snowActive);
+  emberActive = Math.min(emberN, q.ember);
+  emberGeo.setDrawRange(0, emberActive);
+  starGeo.setDrawRange(0, Math.min(STAR_N, q.star));
+  windAllowed = q.wind;
+  if (!q.wind) { windLines.visible = false; windMat.opacity = 0; }
+  trail.visible = q.trail;
+}
+if (qOverride !== null) quality = Math.max(0, Math.min(2, parseInt(qOverride, 10) || 0));
+applyQuality();
+
 // ===================== 主循环 =====================
 const clock = new THREE.Clock();
 let elapsed = 0;
 
-// ---- 动态分辨率：持续掉帧就降采样，流畅了再升回来 ----
-let frameAgg = 0, frameN = 0, dprHold = 0;
+// ---- 动态分辨率 + 动态画质：先砍特效，再降采样 ----
+let frameAgg = 0, frameN = 0, dprHold = 0, qGood = 0;
 function autoRes(raw) {
-  if (isTest || raw > 0.2) return;
+  if (isTest || raw > 0.25) return;
   frameAgg += raw;
   frameN++;
-  if (frameN < 40) return;
+  if (frameN < 45) return;
   const avg = frameAgg / frameN;
   frameAgg = 0;
   frameN = 0;
   if (dprHold > 0) { dprHold--; return; }
 
+  // 一档一档降特效；连续好很久才敢升回来
+  if (qOverride === null) {
+    if (quality < 2 && avg > 0.0215) { quality++; applyQuality(); dprHold = 3; qGood = 0; return; }
+    if (quality > 0 && avg < 0.0148) {
+      qGood++;
+      if (qGood >= 4) { quality--; applyQuality(); qGood = 0; dprHold = 3; return; }
+    } else qGood = 0;
+  }
+
   // 分辨率不再往 0.7 掉——那才是"糊"的元凶。宁可少几颗粒子，也要保住边缘锐利
-  if (avg > 0.024 && dprNow > 0.92) {
-    dprNow = Math.max(0.92, dprNow * 0.88);
+  if (avg > 0.026 && dprNow > 0.90) {
+    dprNow = Math.max(0.90, dprNow * 0.90);
     renderer.setPixelRatio(dprNow);
     renderer.setSize(window.innerWidth, window.innerHeight, false);
     dprHold = 4;
-  } else if (avg < 0.0192 && dprNow < dprBase - 0.01) {
-    dprNow = Math.min(dprBase, dprNow * 1.08);
+  } else if (avg < 0.0180 && dprNow < dprBase - 0.01) {
+    dprNow = Math.min(dprBase, dprNow * 1.07);
     renderer.setPixelRatio(dprNow);
     renderer.setSize(window.innerWidth, window.innerHeight, false);
-    dprHold = 2;
+    dprHold = 3;
   }
 }
 
@@ -3560,6 +3631,30 @@ function animate() {
   const dt = Math.min(raw, 0.05);
   elapsed += dt;
   autoRes(raw);
+
+  // FPS 显示（0.5s 一次，顺带平滑）
+  fpsAcc += raw; fpsN++;
+  if (fpsAcc >= 0.5) {
+    if (fpsEl) fpsEl.textContent = String(Math.round(fpsN / fpsAcc));
+    if (statsOn) {
+      let vis = 0; const byType = {};
+      (function walk(o, pOn) {
+        const on = pOn && o.visible;
+        if (!on) return;
+        vis++;
+        byType[o.type] = (byType[o.type] || 0) + 1;
+        for (const c of o.children) walk(c, on);
+      })(scene, true);
+      document.title = 'calls:' + renderer.info.render.calls + ' tris:' + renderer.info.render.triangles + ' ' + JSON.stringify(byType) + ' q:' + quality + ' dpr:' + dprNow.toFixed(2);
+      let d = document.getElementById('statDump');
+      if (!d) { d = document.createElement('div'); d.id = 'statDump'; d.style.display = 'none'; document.body.appendChild(d); }
+      d.textContent = scene.children.map((c) => {
+        let m = 0; (function w(o) { if (!o.visible) return; if (o.type === 'Mesh') m++; o.children.forEach(w); })(c);
+        return c.type + '#' + c.id + '(m' + m + ')';
+      }).join(' | ');
+    }
+    fpsAcc = 0; fpsN = 0;
+  }
 
   if (state.dead) {
     updateDead(dt, elapsed);
@@ -3591,11 +3686,15 @@ function animate() {
   updateWind(dt);
   updateChapterDeco(dt, elapsed);
   updateCamera(dt, elapsed);
-  updateSky(elapsed);
+  // 天色变化极慢，30Hz 足够，省下每帧一堆颜色插值
+  skyTick ^= 1;
+  if (!skyTick) updateSky(elapsed);
   updateUI(dt);
 
   renderer.render(scene, camera);
 }
+let fpsAcc = 0, fpsN = 0, skyTick = 0;
+const statsOn = location.search.includes('stats');
 animate();
 
 // ===================== 自适应 =====================

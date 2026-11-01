@@ -8,8 +8,19 @@ import * as THREE from 'three';
 
 // ===================== 基础 =====================
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+// ---- 自适应分辨率：高分屏上 2x 渲染是最大的性能杀手 ----
+const DPR_CAP = 1.5;
+const dprBase = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+let dprNow = dprBase;
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: dprBase <= 1.25,   // 已经超采样时 MSAA 意义不大，省一半填充
+  powerPreference: 'high-performance',
+  stencil: false,
+  alpha: false,
+});
+renderer.setPixelRatio(dprNow);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 const scene = new THREE.Scene();
@@ -84,7 +95,7 @@ const skyUniforms = {
 };
 
 const skyDome = new THREE.Mesh(
-  new THREE.SphereGeometry(1500, 40, 28),
+  new THREE.SphereGeometry(1500, 32, 20),
   new THREE.ShaderMaterial({
     uniforms: skyUniforms,
     side: THREE.BackSide,
@@ -116,31 +127,37 @@ const skyDome = new THREE.Mesh(
         vec3 col = mix(uBot, uMid, smoothstep(-0.06, 0.44, h));
         col = mix(col, uTop, smoothstep(0.30, 0.88, h));
 
-        // 地平线暖光
-        float hor = exp(-pow((h - 0.02) * 6.0, 2.0));
+        // 地平线暖光（用乘法代替 pow，省 ALU）
+        float g1 = (h - 0.02) * 6.0;
+        float hor = exp(-g1 * g1);
         col += vec3(1.0, 0.58, 0.34) * hor * 0.10 * (1.0 - uNight);
 
         // 低空云带
-        float cl = exp(-pow((h - 0.085) * 13.0, 2.0));
+        float g2 = (h - 0.085) * 13.0;
+        float cl = exp(-g2 * g2);
         float cw = 0.45 + 0.55 * sin(d.z * 2.6 + uTime * 0.06) * sin(d.x * 1.4 - uTime * 0.04);
         vec3 cloudCol = mix(vec3(0.95, 0.80, 0.78), vec3(0.28, 0.33, 0.52), uNight);
         col = mix(col, cloudCol, cl * 0.30 * (0.4 + 0.6 * cw));
 
-        // 太阳
+        // 太阳（乘法链代替 pow(x, 2/8/42)）
         float sd = max(0.0, dot(d, uSunDir));
-        float disk = smoothstep(0.9992, 0.99965, sd);
-        float halo = pow(sd, 42.0) * 1.1 + pow(sd, 8.0) * 0.34 + pow(sd, 2.2) * 0.10;
-        vec3 sunCol = mix(vec3(1.0, 0.88, 0.66), vec3(1.0, 0.52, 0.30), 0.45);
+        float s2 = sd * sd;
+        float s4 = s2 * s2;
+        float s8 = s4 * s4;
+        float s16 = s8 * s8;
+        float halo = s16 * s16 * s8 * s2 * 1.1 + s8 * 0.34 + s2 * 0.10;
         float sunI = 1.0 - smoothstep(0.05, 0.5, uNight);
-        col += sunCol * halo * sunI;
-        col += vec3(1.0, 0.96, 0.86) * disk * 2.4 * sunI;
+        col += mix(vec3(1.0, 0.88, 0.66), vec3(1.0, 0.52, 0.30), 0.45) * halo * sunI;
+        col += vec3(1.0, 0.96, 0.86) * smoothstep(0.9992, 0.99965, sd) * 2.4 * sunI;
 
         // 月亮
         float md = max(0.0, dot(d, uMoonDir));
-        float mdisk = smoothstep(0.99955, 0.99985, md);
-        col += vec3(0.94, 0.96, 1.0) * mdisk * 2.6 * uNight;
-        col += vec3(0.55, 0.68, 1.0) * pow(md, 90.0) * 0.9 * uNight;
-        col += vec3(0.32, 0.44, 0.85) * pow(md, 10.0) * 0.10 * uNight;
+        float m2 = md * md;
+        float m4 = m2 * m2;
+        float m8 = m4 * m4;
+        col += vec3(0.94, 0.96, 1.0) * smoothstep(0.99955, 0.99985, md) * 2.6 * uNight;
+        col += vec3(0.55, 0.68, 1.0) * m8 * m8 * 0.9 * uNight;
+        col += vec3(0.32, 0.44, 0.85) * m8 * m2 * 0.10 * uNight;
 
         // 极光帷幕
         if (uAurora > 0.001) {
@@ -150,9 +167,8 @@ const skyDome = new THREE.Mesh(
           float rays = 0.55 + 0.45 * sin(d.z * 34.0 + uTime * 1.1 + b * 3.0);
           vec3 ac = mix(vec3(0.16, 0.92, 0.62), vec3(0.42, 0.52, 1.0), 0.5 + 0.5 * b);
           col += ac * yBand * curtain * rays * uAurora * 0.95;
-          // 极光在地平线的反光
-          float low = exp(-pow((h + 0.02) * 9.0, 2.0));
-          col += vec3(0.20, 0.75, 0.60) * low * uAurora * 0.31 * (0.5 + 0.5 * b);
+          float g3 = (h + 0.02) * 9.0;
+          col += vec3(0.20, 0.75, 0.60) * exp(-g3 * g3) * uAurora * 0.31 * (0.5 + 0.5 * b);
         }
 
         gl_FragColor = vec4(col, 1.0);
@@ -164,7 +180,7 @@ skyDome.frustumCulled = false;
 scene.add(skyDome);
 
 // ===================== 星 =====================
-const STAR_N = 420;
+const STAR_N = 280;
 const starGeo = new THREE.BufferGeometry();
 const starPos = new Float32Array(STAR_N * 3);
 const starCol = new Float32Array(STAR_N * 3);
@@ -340,7 +356,7 @@ buildCanyonWall(-1);
 
 // ===================== 路边剪影树 =====================
 (function buildTrees() {
-  const count = 420;
+  const count = 300;
   const trunkGeo = new THREE.CylinderGeometry(0.11, 0.16, 1, 5);
   trunkGeo.translate(0, 0.5, 0);
   const crownGeo = new THREE.ConeGeometry(1, 1, 7);
@@ -378,6 +394,151 @@ buildCanyonWall(-1);
   trunks.instanceMatrix.needsUpdate = true;
   crowns.instanceMatrix.needsUpdate = true;
   scene.add(trunks, crowns);
+})();
+
+// ===================== 赛道物件：岩石 / 枯木 / 跳台 =====================
+// 沿 x 轴一次性规划好，运行时用游标推进 → 每帧只检查身边几个，O(1)
+const obstacles = [];
+const ramps = [];
+let propSeed = 20261101;
+function prnd() {
+  propSeed = (propSeed * 1664525 + 1013904223) % 4294967296;
+  return propSeed / 4294967296;
+}
+
+(function planProps() {
+  let x = 175;
+  let sinceRamp = 0;
+  while (x < X_END - 620) {
+    const prog = Math.min(1, x / 2800);
+    const gap = 136 - prog * 80;              // 136m → 56m，越滑越密
+    x += gap * (0.72 + prnd() * 0.66);
+    sinceRamp++;
+
+    // 每 3~4 组来一个跳台
+    if (sinceRamp >= 3 && prnd() < 0.52) {
+      ramps.push({
+        x,
+        z: (prnd() - 0.5) * (LANE_HALF * 1.0),
+        halfW: 3.1,
+        len: 6.4,
+        rise: 1.6,
+        done: false,
+      });
+      sinceRamp = 0;
+      continue;
+    }
+
+    const double = prnd() < 0.30 + prog * 0.28;
+    const z0 = (prnd() - 0.5) * (LANE_HALF * 1.7);
+    for (let k = 0; k < (double ? 2 : 1); k++) {
+      const kind = prnd() < 0.62 ? 'rock' : 'stump';
+      const halfZ = kind === 'rock' ? 1.15 + prnd() * 0.45 : 0.72;
+      let z = z0;
+      if (k === 1) {
+        // 第二个往另一侧拉开，中间必须留出超过 6m 的通路
+        z = z0 + (z0 > 0 ? -1 : 1) * (9.5 + prnd() * 4.5);
+      }
+      if (Math.abs(z) + halfZ > LANE_HALF - 0.8) continue;
+      obstacles.push({
+        x: x + k * (3.0 + prnd() * 1.6),
+        z,
+        kind,
+        halfZ,
+        halfX: kind === 'rock' ? 1.25 : 0.70,
+        top: kind === 'rock' ? 1.30 + prnd() * 0.55 : 2.9 + prnd() * 1.1,
+        done: false,
+        seed: prnd(),
+      });
+    }
+  }
+  obstacles.sort((a, b) => a.x - b.x);
+  ramps.sort((a, b) => a.x - b.x);
+})();
+
+(function renderProps() {
+  const dummy = new THREE.Object3D();
+  const rocks = obstacles.filter((o) => o.kind === 'rock');
+  const stumps = obstacles.filter((o) => o.kind === 'stump');
+
+  if (rocks.length) {
+    const gRock = new THREE.IcosahedronGeometry(1, 0);
+    const meshRock = new THREE.InstancedMesh(gRock, new THREE.MeshBasicMaterial({ color: 0x393f5e }), rocks.length);
+    const meshSnow = new THREE.InstancedMesh(gRock, new THREE.MeshBasicMaterial({ color: 0xe9f1ff }), rocks.length);
+    rocks.forEach((o, i) => {
+      const y = terrainY(o.x) + bank(o.z);
+      dummy.position.set(o.x, y + o.top * 0.40, o.z);
+      dummy.rotation.set(o.seed * 2.4, o.seed * 6.2, o.seed * 1.7);
+      dummy.scale.set(o.halfX * 1.02, o.top * 0.60, o.halfZ * 1.02);
+      dummy.updateMatrix();
+      meshRock.setMatrixAt(i, dummy.matrix);
+
+      dummy.position.set(o.x, y + o.top * 0.86, o.z);
+      dummy.rotation.set(o.seed * 1.6, o.seed * 4.1, 0);
+      dummy.scale.set(o.halfX * 0.80, o.top * 0.24, o.halfZ * 0.78);
+      dummy.updateMatrix();
+      meshSnow.setMatrixAt(i, dummy.matrix);
+    });
+    meshRock.instanceMatrix.needsUpdate = true;
+    meshSnow.instanceMatrix.needsUpdate = true;
+    scene.add(meshRock, meshSnow);
+  }
+
+  if (stumps.length) {
+    const gTrunk = new THREE.CylinderGeometry(0.26, 0.42, 1, 6);
+    gTrunk.translate(0, 0.5, 0);
+    const gCap = new THREE.ConeGeometry(0.46, 0.4, 6);
+    const mTrunk = new THREE.MeshBasicMaterial({ color: 0x1c2038 });
+    const mCap = new THREE.MeshBasicMaterial({ color: 0xdfe9ff });
+    const meshTrunk = new THREE.InstancedMesh(gTrunk, mTrunk, stumps.length);
+    const meshCap = new THREE.InstancedMesh(gCap, mCap, stumps.length);
+    stumps.forEach((o, i) => {
+      const y = terrainY(o.x) + bank(o.z);
+      dummy.position.set(o.x, y - 0.1, o.z);
+      dummy.rotation.set((o.seed - 0.5) * 0.14, o.seed * 6.2, (o.seed - 0.5) * 0.12);
+      dummy.scale.set(1, o.top, 1);
+      dummy.updateMatrix();
+      meshTrunk.setMatrixAt(i, dummy.matrix);
+
+      dummy.position.set(o.x, y + o.top - 0.12, o.z);
+      dummy.rotation.set(0, o.seed * 6.2, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      meshCap.setMatrixAt(i, dummy.matrix);
+    });
+    meshTrunk.instanceMatrix.needsUpdate = true;
+    meshCap.instanceMatrix.needsUpdate = true;
+    scene.add(meshTrunk, meshCap);
+  }
+
+  // 跳台：倾斜的木板 + 发光前沿
+  if (ramps.length) {
+    const gDeck = new THREE.BoxGeometry(1, 0.34, 1);
+    const gEdge = new THREE.BoxGeometry(1, 0.12, 1);
+    const mDeck = new THREE.MeshBasicMaterial({ color: 0x8a6ad8 });
+    const mEdge = new THREE.MeshBasicMaterial({ color: 0xffe6b8 });
+    const meshDeck = new THREE.InstancedMesh(gDeck, mDeck, ramps.length);
+    const meshEdge = new THREE.InstancedMesh(gEdge, mEdge, ramps.length);
+    ramps.forEach((r, i) => {
+      const y = terrainY(r.x) + bank(r.z);
+      const ang = Math.atan2(r.rise, r.len);
+
+      dummy.position.set(r.x, y + r.rise * 0.5 - 0.10, r.z);
+      dummy.rotation.set(0, 0, ang);
+      dummy.scale.set(r.len, 1, r.halfW * 2);
+      dummy.updateMatrix();
+      meshDeck.setMatrixAt(i, dummy.matrix);
+
+      dummy.position.set(r.x + r.len * 0.46, y + r.rise + 0.02, r.z);
+      dummy.rotation.set(0, 0, ang);
+      dummy.scale.set(0.5, 1, r.halfW * 2);
+      dummy.updateMatrix();
+      meshEdge.setMatrixAt(i, dummy.matrix);
+    });
+    meshDeck.instanceMatrix.needsUpdate = true;
+    meshEdge.instanceMatrix.needsUpdate = true;
+    scene.add(meshDeck, meshEdge);
+  }
 })();
 
 // ===================== 主角：小雪团（可爱向） =====================
@@ -781,31 +942,53 @@ function updateAnimals(dt, t) {
   }
 }
 
-// ===================== 收集光点 =====================
-const ORB_GAP = 35;
+// ===================== 收集光点（成串的光带） =====================
+const ORB_GAP = 42;
 const ORB_COUNT = Math.floor((X_END - X_START - 120) / ORB_GAP);
+const ORB_CHAIN = 7;                     // 每串 7 颗
 const orbs = [];
 const orbGroup = new THREE.Group();
 scene.add(orbGroup);
+const orbChains = [];
+
+function chainRnd(gid, salt) {
+  const v = Math.sin(gid * 127.1 + salt * 311.7) * 43758.5453;
+  return v - Math.floor(v);
+}
 
 for (let i = 0; i < ORB_COUNT; i++) {
+  const gid = Math.floor(i / ORB_CHAIN);
+  const k = i % ORB_CHAIN;
+  if (k === 0) orbChains.push({ total: ORB_CHAIN, got: 0, done: false });
+
   const s = new THREE.Sprite(new THREE.SpriteMaterial({
     map: GLOW, color: 0xfff2d2, transparent: true,
     blending: THREE.AdditiveBlending, depthWrite: false, opacity: 1, fog: false,
   }));
-  const x = 60 + i * ORB_GAP + Math.random() * 10;
-  const z = (Math.random() - 0.5) * (LANE_HALF * 1.55);
-  s.position.set(x, terrainY(x) + bank(z) + 2.0 + Math.random() * 1.9, z);
-  const sc = 1.7 + Math.random() * 0.5;
+
+  const x = 60 + i * ORB_GAP;
+  const zc = (chainRnd(gid, 1) - 0.5) * LANE_HALF * 1.15;
+  const ampZ = 3.2 + chainRnd(gid, 2) * 5.0;
+  const ph = chainRnd(gid, 3) * Math.PI * 2;
+  const u = k / (ORB_CHAIN - 1);
+  let z = zc + Math.sin(u * Math.PI * 1.35 + ph) * ampZ;
+  z = Math.max(-LANE_HALF + 1.4, Math.min(LANE_HALF - 1.4, z));
+  const lift = Math.sin(u * Math.PI) * (1.1 + chainRnd(gid, 4) * 1.6);
+
+  s.position.set(x, terrainY(x) + bank(z) + 1.9 + lift, z);
+  const sc = 1.65 + chainRnd(gid, 5) * 0.45;
   s.scale.setScalar(sc);
-  s.userData = { taken: false, baseY: s.position.y, phase: Math.random() * 6.28, baseScale: sc, ix: s.position.x, iy: s.position.y, iz: s.position.z };
+  s.userData = {
+    taken: false, baseY: s.position.y, phase: chainRnd(gid, 6) * 6.28, baseScale: sc,
+    ix: s.position.x, iy: s.position.y, iz: s.position.z, gid,
+  };
   orbGroup.add(s);
   orbs.push(s);
 }
 document.getElementById('orbs').parentElement.querySelector('em').textContent = '/ ' + ORB_COUNT;
 
 // ===================== 飘雪 =====================
-const SNOW_N = 520;
+const SNOW_N = 360;
 const snowGeo = new THREE.BufferGeometry();
 const snowPos = new Float32Array(SNOW_N * 3);
 for (let i = 0; i < SNOW_N; i++) {
@@ -836,6 +1019,11 @@ const state = {
   score: 0,
   buddies: 0,
   best: 0,
+  points: 0,
+  combo: 0,
+  comboT: 0,
+  bestPts: 0,
+  milestone: 0,
   distance: 0,
   spin: 0,
   flipAngle: 0,
@@ -1257,6 +1445,30 @@ function sfxLand() {
   o.start(t); o.stop(t + 0.3);
 }
 
+// 擦身而过：一道短促的风声（噪声 + 带通扫频）
+function sfxNear() {
+  if (!audio.ready) return;
+  const ctx = audio.ctx;
+  const t = ctx.currentTime;
+  const len = 0.20;
+  const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 3.2;
+  bp.frequency.setValueAtTime(1500, t);
+  bp.frequency.exponentialRampToValueAtTime(3600, t + len);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.055, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  src.connect(bp); bp.connect(g); g.connect(audio.master);
+  src.start(t); src.stop(t + len + 0.02);
+}
+
 // 碰到小动物：两声上扬的可爱“啾”
 function sfxAnimal() {
   if (!audio.ready) return;
@@ -1339,6 +1551,36 @@ const dDistEl = document.getElementById('dDist');
 const dOrbsEl = document.getElementById('dOrbs');
 const dBuddiesEl = document.getElementById('dBuddies');
 const dBestEl = document.getElementById('dBest');
+const dSubEl = document.getElementById('dSub');
+const dPtsEl = document.getElementById('dPts');
+const ptsEl = document.getElementById('pts');
+const comboWrapEl = document.getElementById('comboWrap');
+const comboNEl = document.getElementById('comboN');
+const comboFillEl = document.getElementById('comboFill');
+
+// ---------- 连击与计分 ----------
+const COMBO_WINDOW = 3.4;
+function comboMult() {
+  return 1 + Math.min(2.6, state.combo * 0.12);
+}
+// base：基础分。返回实际获得的分数
+function addCombo(base) {
+  state.combo++;
+  state.comboT = COMBO_WINDOW;
+  const gain = Math.round(base * comboMult());
+  state.points += gain;
+  if (ptsEl) {
+    ptsEl.textContent = String(state.points);
+    ptsEl.classList.remove('bump');
+    void ptsEl.offsetWidth;
+    ptsEl.classList.add('bump');
+  }
+  return gain;
+}
+function breakCombo() {
+  state.combo = 0;
+  state.comboT = 0;
+}
 
 // ---------- 效果提示条 ----------
 let chipTimer = null;
@@ -1416,6 +1658,109 @@ if (new URLSearchParams(location.search).get('crash') === '1') {
   setTimeout(() => { if (!state.dead) crash(); }, 1000 + (parseFloat(new URLSearchParams(location.search).get('d') || '0') > 0 ? 1500 : 0));
 }
 
+// ===================== 更新：障碍 / 跳台 / 连击 =====================
+let obsCur = 0;
+let rampCur = 0;
+
+function comboToast(label) {
+  if (state.combo >= 3 && state.combo % 5 === 0) showPop(label + '　×' + state.combo);
+}
+
+function onNearMiss(o) {
+  addCombo(22);
+  state.boost = Math.min(1, state.boost + 0.035);
+  sfxNear();
+  spawnBurst(o.x, terrainY(o.x) + bank(o.z) + o.top * 0.7, o.z, 0xbfe9ff, 4);
+  comboToast('擦 身');
+}
+
+function onFlyOver(o) {
+  addCombo(48);
+  sfxNear();
+  spawnBurst(o.x, terrainY(o.x) + bank(o.z) + o.top + 0.6, o.z, 0xffe0b0, 7);
+  comboToast('飞 越');
+}
+
+function onSmash(o) {
+  addCombo(12);
+  for (let i = 0; i < 7; i++) spawnPuff(o.x, terrainY(o.x) + bank(o.z) + o.top * 0.5, o.z);
+  sfxAnimal();
+}
+
+function updateProps(dt) {
+  if (!state.started || state.dead) return;
+
+  // ---- 连击倒计时 ----
+  if (state.comboT > 0) {
+    state.comboT -= dt;
+    if (state.comboT <= 0) breakCombo();
+  }
+
+  // ---- 每 500m 里程碑 ----
+  const ms = Math.floor(state.distance / 500);
+  if (ms > state.milestone) {
+    state.milestone = ms;
+    addCombo(60);
+    state.boost = Math.min(1, state.boost + 0.28);
+    showPop(ms * 500 + ' M　' + (ms >= 4 ? '极光就在前面' : '稳住节奏'));
+    sfxAnimal();
+  }
+
+  // ---- 跳台 ----
+  while (rampCur < ramps.length && ramps[rampCur].x + ramps[rampCur].len < state.prevX - 12) rampCur++;
+  for (let i = rampCur; i < ramps.length; i++) {
+    const r = ramps[i];
+    if (r.x - r.len > state.x + 12) break;
+    if (r.done || state.air) continue;
+    if (state.x < r.x - r.len * 0.45 || state.x > r.x + r.len * 0.62) continue;
+    if (Math.abs(state.z - r.z) > r.halfW + 0.55) continue;
+
+    r.done = true;
+    state.air = true;
+    state.vy = 13.5 + state.speed * 0.30;
+    state.spin = 0;
+    state.fx.glide = 0;
+    sfxJump();
+    showPop('起 跳 台　↑ 再扭转体');
+    spawnBurst(state.x, state.y + 0.7, state.z, 0xffe0b0, 8);
+  }
+
+  // ---- 障碍 ----
+  while (obsCur < obstacles.length && obstacles[obsCur].x < state.prevX - 14) obsCur++;
+  for (let i = obsCur; i < obstacles.length; i++) {
+    const o = obstacles[i];
+    if (o.x - o.halfX > state.x + 12) break;
+    if (o.done) continue;
+
+    // 本帧扫过的区间与障碍是否有重叠
+    if (o.x + o.halfX < state.prevX - 0.8) continue;
+    if (o.x - o.halfX > state.x + 1.1) continue;
+
+    const dz = Math.abs(state.z - o.z);
+    const groundY = terrainY(o.x) + bank(o.z);
+    const topY = groundY + o.top;
+
+    if (dz < o.halfZ + 0.60) {
+      if (state.y > topY + 0.08) {
+        o.done = true;
+        onFlyOver(o);
+      } else if (state.fx.invuln > 0) {
+        o.done = true;
+        onSmash(o);
+      } else {
+        o.done = true;
+        crash('撞 上 了 障 碍');
+        return;
+      }
+    } else if (dz < o.halfZ + 2.9) {
+      o.done = true;
+      onNearMiss(o);
+    } else {
+      o.done = true;
+    }
+  }
+}
+
 // ===================== 更新：角色 =====================
 function updateSkier(dt, t) {
   const slope = terrainSlope(state.x);
@@ -1447,7 +1792,9 @@ function updateSkier(dt, t) {
     const accel = -slope * 40;
     state.speed += (accel - 2.6) * dt;
     if (wantBoost) state.speed += (boosted ? 32 : 17) * dt;
-    state.speed = Math.max(6, Math.min(boosted ? 62 : 48, state.speed));
+    // 上限随距离提升：越往后越疯
+    const cap = (boosted ? 62 : 48) + Math.min(15, state.distance * 0.0055);
+    state.speed = Math.max(6, Math.min(cap, state.speed));
 
     state.x += Math.cos(ang) * state.speed * dt;
     state.y = terrainY(state.x) + bank(state.z);
@@ -1549,7 +1896,7 @@ function updateSkier(dt, t) {
 }
 
 // ===================== 摔倒 =====================
-function crash() {
+function crash(reason) {
   if (state.dead) return;
   state.dead = true;
   state.deadT = 0;
@@ -1557,6 +1904,8 @@ function crash() {
   state.spin = 0;
   state.speed *= 0.45;
   state.best = Math.max(state.best, Math.floor(state.distance));
+  state.bestPts = Math.max(state.bestPts, state.points);
+  breakCombo();
 
   sfxCrash();
   flashScreen();
@@ -1565,6 +1914,8 @@ function crash() {
   }
 
   setTimeout(() => {
+    dSubEl.textContent = reason || '头 先 着 地 · 没 能 站 稳';
+    dPtsEl.textContent = String(state.points);
     dDistEl.textContent = String(Math.floor(state.distance));
     dOrbsEl.textContent = String(state.score);
     dBuddiesEl.textContent = String(state.buddies);
@@ -1600,6 +1951,14 @@ function restart() {
     o.position.set(o.userData.ix, o.userData.iy, o.userData.iz);
     o.userData.baseY = o.userData.iy;
   }
+  for (const ch of orbChains) {
+    ch.got = 0;
+    ch.done = false;
+  }
+  for (const o of obstacles) o.done = false;
+  for (const r of ramps) r.done = false;
+  obsCur = 0;
+  rampCur = 0;
   for (const a of animals) {
     a.userData.taken = false;
     a.userData.fade = 0;
@@ -1618,6 +1977,10 @@ function restart() {
   state.air = false;
   state.score = 0;
   state.buddies = 0;
+  state.points = 0;
+  state.combo = 0;
+  state.comboT = 0;
+  state.milestone = 0;
   state.distance = 0;
   state.spin = 0;
   state.boost = 1;
@@ -1721,6 +2084,11 @@ function updateOrbs(dt, t) {
   const magnet = state.fx.magnet > 0;
   for (const o of orbs) {
     if (o.userData.taken) continue;
+
+    // 只在角色附近做动画与判定（远处光点保持静止，省下大量计算）
+    const ax = o.position.x - state.x;
+    if (ax > 110 || ax < -26) continue;
+
     o.position.y = o.userData.baseY + Math.sin(t * 1.8 + o.userData.phase) * 0.38;
 
     if (magnet && state.started) {
@@ -1747,8 +2115,23 @@ function updateOrbs(dt, t) {
       o.userData.taken = true;
       o.visible = false;
       state.score++;
+      addCombo(14);
       sfxPickup();
       spawnBurst(o.position.x, o.position.y, o.position.z, 0xfff2d2, 4);
+
+      // 整串收齐 → 额外奖励
+      const ch = orbChains[o.userData.gid];
+      if (ch && !ch.done) {
+        ch.got++;
+        if (ch.got >= ch.total) {
+          ch.done = true;
+          addCombo(95);
+          state.boost = Math.min(1, state.boost + 0.14);
+          showPop('光 带 贯 通！');
+          spawnBurst(o.position.x, o.position.y, o.position.z, 0xffd8a0, 12);
+          sfxAnimal();
+        }
+      }
     }
   }
 }
@@ -1800,9 +2183,12 @@ function updateCamera(dt) {
   camera.lookAt(camLook);
 
   // 速度带来的视野扩张（摔倒时轻轻收窄）
-  const targetFov = 60 + Math.min(14, spd * 0.26) - deadK * 4;
-  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 1.6);
-  camera.updateProjectionMatrix();
+  const targetFov = 60 + Math.min(16, spd * 0.26) - deadK * 4;
+  const nf = camera.fov + (targetFov - camera.fov) * Math.min(1, dt * 1.6);
+  if (Math.abs(nf - camera.fov) > 0.04) {
+    camera.fov = nf;
+    camera.updateProjectionMatrix();
+  }
 
   // 天空/星跟随
   skyDome.position.copy(camPos);
@@ -1868,35 +2254,80 @@ function updateSky(t) {
 
 // ===================== UI =====================
 let uiAcc = 0;
+let uiCache = { d: -1, s: -1, o: -1, b: -1 };
 function updateUI(dt) {
   uiAcc += dt;
-  if (uiAcc < 0.07) return;
+  if (uiAcc < 0.08) return;
   uiAcc = 0;
 
-  distEl.textContent = String(Math.max(0, Math.floor(state.distance)));
+  // 只在数值变化时写 DOM，避免无谓的重排
+  const d = Math.max(0, Math.floor(state.distance));
+  if (d !== uiCache.d) { uiCache.d = d; distEl.textContent = String(d); }
+
   const kmh = Math.round(state.speed * 3.6);
-  speedEl.textContent = String(kmh);
-  speedFillEl.style.height = Math.min(100, (state.speed / 62) * 100) + '%';
-  orbsEl.textContent = String(state.score);
-  scoreEl.textContent = String(state.buddies);
+  if (kmh !== uiCache.s) {
+    uiCache.s = kmh;
+    speedEl.textContent = String(kmh);
+    speedFillEl.style.height = Math.min(100, (kmh / 225) * 100) + '%';
+  }
+  if (state.score !== uiCache.o) { uiCache.o = state.score; orbsEl.textContent = String(state.score); }
+  if (state.buddies !== uiCache.b) { uiCache.b = state.buddies; scoreEl.textContent = String(state.buddies); }
+
   phaseFillEl.style.width = (Math.min(1, state.distance / DIST_FULL) * 100) + '%';
   boostFillEl.style.width = (state.boost * 100) + '%';
   boostWrapEl.classList.toggle('low', state.boost < 0.25);
+
+  // 连击
+  const showCombo = state.combo >= 2 && !state.dead;
+  comboWrapEl.classList.toggle('on', showCombo);
+  comboWrapEl.classList.toggle('hot', state.combo >= 9);
+  if (showCombo) {
+    comboNEl.textContent = comboMult().toFixed(1);
+    comboFillEl.style.width = Math.max(0, (state.comboT / COMBO_WINDOW) * 100) + '%';
+  }
 }
 
 // ===================== 主循环 =====================
 const clock = new THREE.Clock();
 let elapsed = 0;
 
+// ---- 动态分辨率：持续掉帧就降采样，流畅了再升回来 ----
+let frameAgg = 0, frameN = 0, dprHold = 0;
+function autoRes(raw) {
+  if (isTest || raw > 0.2) return;
+  frameAgg += raw;
+  frameN++;
+  if (frameN < 40) return;
+  const avg = frameAgg / frameN;
+  frameAgg = 0;
+  frameN = 0;
+  if (dprHold > 0) { dprHold--; return; }
+
+  if (avg > 0.024 && dprNow > 0.70) {
+    dprNow = Math.max(0.70, dprNow * 0.85);
+    renderer.setPixelRatio(dprNow);
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    dprHold = 2;
+  } else if (avg < 0.0165 && dprNow < dprBase - 0.01) {
+    dprNow = Math.min(dprBase, dprNow * 1.06);
+    renderer.setPixelRatio(dprNow);
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    dprHold = 3;
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const raw = clock.getDelta();
+  const dt = Math.min(raw, 0.05);
   elapsed += dt;
+  autoRes(raw);
 
   if (state.dead) {
     updateDead(dt, elapsed);
   } else if (state.started) {
     updateSkier(dt, elapsed);
+    updateProps(dt);
     updateOrbs(dt, elapsed);
     updateAnimals(dt, elapsed);
     if (audio.ready && audio.windGain) {

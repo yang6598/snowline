@@ -555,6 +555,64 @@ const mittenMat = new THREE.MeshBasicMaterial({ color: 0x8ee6d4 });
 const eyeMat = new THREE.MeshBasicMaterial({ color: 0x33263c });
 const blushMat = new THREE.MeshBasicMaterial({ color: 0xffab9a, transparent: true, opacity: 0.85 });
 
+// ===================== 皮肤 / 存档 =====================
+const SKIN_PERSON = [
+  { id:'ember',  name:'余烬',   price:0,   hat:0x7ad4c5, coat:0xff9d76, coatDark:0xf5805e, scarf:0xffd071, mitten:0x8ee6d4, fur:0xfff6ea, blush:0xffab9a },
+  { id:'mist',   name:'霁青',   price:140, hat:0x9fc2d8, coat:0xdfe9f2, coatDark:0xc2d3e0, scarf:0x8fb8d8, mitten:0xb9d3e6, fur:0xfffaf4, blush:0xffc2c8 },
+  { id:'moss',   name:'苔原',   price:160, hat:0x8fae7a, coat:0xc9b686, coatDark:0xa8966a, scarf:0xe8d9a8, mitten:0x9db38a, fur:0xfdfbf2, blush:0xffb49a },
+  { id:'peach',  name:'蜜桃',   price:260, hat:0xffb4b4, coat:0xffd2d8, coatDark:0xf0aeb8, scarf:0xfff0e0, mitten:0xffc4d0, fur:0xfffaf6, blush:0xff9aa8 },
+  { id:'nox',    name:'夜巡',   price:320, hat:0x4a5a9e, coat:0x2c3350, coatDark:0x232842, scarf:0x8ea2e8, mitten:0x6a7ac4, fur:0xdfe4f5, blush:0xc08ab0 },
+  { id:'aurora', name:'极光',   price:480, hat:0x6ae8c0, coat:0x8f7ce8, coatDark:0x6b5bc4, scarf:0xffa8d8, mitten:0x7ef0d0, fur:0xf2fbff, blush:0xff9ac8 },
+];
+
+const SKIN_BOARD = [
+  { id:'feather', name:'雪羽',   price:0,   board:0xffb27a, under:0xd9744f, trim:0xffe0b8 },
+  { id:'ink',     name:'墨影',   price:120, board:0x2b2438, under:0xffd071, trim:0xffd071 },
+  { id:'teal',    name:'青鸾',   price:180, board:0x3fc4b0, under:0xf0fff8, trim:0xd8fff6 },
+  { id:'sakura',  name:'樱',     price:240, board:0xffb6cf, under:0xff7fa8, trim:0xfff0f6 },
+  { id:'orbit',   name:'星轨',   price:380, board:0x2a2f5a, under:0x9ad8ff, trim:0x9ad8ff },
+  { id:'prism',   name:'棱镜',   price:520, board:0x7ef0d0, under:0xa98cff, trim:0xd8fff6 },
+];
+
+const SAVE_KEY = 'snowline.save.v3';
+const DEFAULT_SAVE = {
+  starlight: 220,                 // 初始给一点，能立刻买一件
+  ownedP: ['ember'],
+  ownedB: ['feather'],
+  equipP: 'ember',
+  equipB: 'feather',
+  chapter: 0,                     // 已解锁到第几章（0 起）
+  cleared: [false, false, false],
+  bestDist: 0,
+  bestPts: 0,
+};
+let save = Object.assign({}, DEFAULT_SAVE);
+try {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (raw) Object.assign(save, JSON.parse(raw));
+} catch (e) { /* 隐私模式忽略 */ }
+function persist() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {}
+}
+
+const skinP = (id) => SKIN_PERSON.find((s) => s.id === id) || SKIN_PERSON[0];
+const skinB = (id) => SKIN_BOARD.find((s) => s.id === id) || SKIN_BOARD[0];
+
+function applySkin(personId, boardId) {
+  const p = skinP(personId || save.equipP);
+  const b = skinB(boardId || save.equipB);
+  hatMat.color.setHex(p.hat);
+  coatMat.color.setHex(p.coat);
+  coatDarkMat.color.setHex(p.coatDark);
+  scarfMat.color.setHex(p.scarf);
+  mittenMat.color.setHex(p.mitten);
+  creamMat.color.setHex(p.fur);
+  blushMat.color.setHex(p.blush);
+  boardMat.color.setHex(b.board);
+  boardUnderMat.color.setHex(b.under);
+  if (skierGlow) skierGlow.material.color.setHex(p.scarf).lerp(new THREE.Color(0xffffff), 0.45);
+}
+
 // 板：圆头圆尾的胖板
 const boardGeo = new THREE.CapsuleGeometry(0.30, 1.35, 4, 12);
 boardGeo.rotateZ(Math.PI / 2);
@@ -1033,8 +1091,43 @@ const state = {
   dead: false,
   deadT: 0,
   squash: 0,
-  fx: { boost: 0, glide: 0, magnet: 0, invuln: 0 },
+  fx: { boost: 0, glide: 0, magnet: 0, invuln: 0, aurora: 0 },
+  chapter: 0,
+  chapterDone: false,
+  arrived: false,
+  ava: { on: false, x: -80, gap: 48, startAt: 0, wait: 0, active: false, t: 0 },
 };
+
+let obsCur = 0;
+let rampCur = 0;
+
+// 剧情旁白与雪崩（提前声明，避免初始化顺序问题）
+let storyPtr = 0;
+let narrT = 0;
+let crashReason = '';
+const narrQueue = [];
+
+const avaGroup = new THREE.Group();
+avaGroup.visible = false;
+scene.add(avaGroup);
+const avaPuffs = [];
+for (let i = 0; i < 62; i++) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: GLOW, color: 0xffffff, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.4, fog: false,
+  }));
+  sp.userData = {
+    dx: Math.pow(Math.random(), 0.7) * 58,
+    dy: Math.random() * 9.5,
+    dz: (Math.random() - 0.5) * 46,
+    sz: 3 + Math.random() * 9,
+    ph: Math.random() * 6.28,
+    sp2: 0.6 + Math.random() * 0.9,
+  };
+  sp.scale.setScalar(sp.userData.sz);
+  avaGroup.add(sp);
+  avaPuffs.push(sp);
+}
 
 const camPos = new THREE.Vector3(-11, terrainY(0) + 6, 0);
 const camLook = new THREE.Vector3(14, terrainY(0) + 2, 0);
@@ -1532,7 +1625,24 @@ function sfxCrash() {
 
 // ===================== UI 引用 =====================
 const bootEl = document.getElementById('boot');
-const introEl = document.getElementById('intro');
+const menuEl = document.getElementById('menu');
+const shopEl = document.getElementById('shop');
+const chapEl = document.getElementById('chapters');
+const helpEl = document.getElementById('help');
+const cutinEl = document.getElementById('cutin');
+const narrEl = document.getElementById('narr');
+const narrWhoEl = document.getElementById('narrWho');
+const narrTxtEl = document.getElementById('narrTxt');
+const skinGridEl = document.getElementById('skinGrid');
+const shopStarEl = document.getElementById('shopStar');
+const menuStarEl = document.getElementById('menuStar');
+const menuBestEl = document.getElementById('menuBest');
+const menuProgEl = document.getElementById('menuProg');
+const chapWrapEl = document.getElementById('chapWrap');
+const shopHintEl = document.getElementById('shopHint');
+const dTitleEl = document.getElementById('dTitle');
+const dEmEl = document.getElementById('dEm');
+const dGainEl = document.getElementById('dGain');
 const uiEl = document.getElementById('ui');
 const keysHintEl = document.getElementById('keysHint');
 const distEl = document.getElementById('dist');
@@ -1561,7 +1671,8 @@ const comboFillEl = document.getElementById('comboFill');
 // ---------- 连击与计分 ----------
 const COMBO_WINDOW = 3.4;
 function comboMult() {
-  return 1 + Math.min(2.6, state.combo * 0.12);
+  const base = 1 + Math.min(2.6, state.combo * 0.12);
+  return base * (state.fx.aurora > 0 ? 2 : 1);
 }
 // base：基础分。返回实际获得的分数
 function addCombo(base) {
@@ -1618,21 +1729,304 @@ requestAnimationFrame(() => {
   }, 120);
 });
 
-function begin() {
-  if (state.started) return;
-  state.started = true;
-  if (isTest) {
-    introEl.remove();
-    bootEl.remove();
-  } else {
-    introEl.classList.add('gone');
-  }
-  uiEl.classList.add('show');
-  initAudio();
-  setTimeout(() => keysHintEl.classList.add('fade'), 11000);
+// ===================== 剧情章节 =====================
+const CHAPTERS = [
+  {
+    no: 'CHAPTER 01', name: '落日的第一道坡',
+    sub: '风替你把信送出去了一半',
+    goal: 900,
+    lines: [
+      { at: 40,  who: '旁 白', txt: '黄昏正在退场。你从山脊上滑下去，口袋里那封信，比雪还轻。' },
+      { at: 230, who: '阿 岚', txt: '喂——这么急，是要赶在极光落下来之前吗？' },
+      { at: 300, who: '阿 岚', txt: '那正好。我也在找一个人。跟着光走，别停下来。' },
+      { at: 620, who: '旁 白', txt: '石头在雪里露出一点点角。它们记得每一个经过这里的人。' },
+    ],
+  },
+  {
+    no: 'CHAPTER 02', name: '星星落下的时候',
+    sub: '夜把整座山收进了口袋',
+    goal: 1700,
+    lines: [
+      { at: 60,  who: '旁 白', txt: '天黑得很快。光点变成了星星，而路，成了它们之间的一条细线。' },
+      { at: 300, who: '阿 岚', txt: '你看天上那些光——它们会掉的。掉下来，就变成路上的灯。' },
+      { at: 700, who: '旁 白', txt: '你想起信里那句话：如果找不到我，就抬头。' },
+      { at: 1200, who: '阿 岚', txt: '别怕黑。雪在夜里更亮，它一直在替你照路。' },
+    ],
+  },
+  {
+    no: 'CHAPTER 03', name: '极光之下',
+    sub: '山在挽留你，但你还是要往下走',
+    goal: 2500,
+    avalanche: 1100,
+    lines: [
+      { at: 30,   who: '旁 白', txt: '极光从天上垂下来了，像一条没有尽头的河。也就在这时，山开始动了。' },
+      { at: 1200, who: '旁 白', txt: '身后传来低低的轰鸣。整片山坡的雪，一起醒了过来。' },
+      { at: 1260, who: '阿 岚', txt: '不要回头看！滑下去，一直滑到极光的尽头！' },
+      { at: 2000, who: '旁 白', txt: '你把信攥得很紧。忽然明白，山不是要拦你——它是在送你。' },
+    ],
+  },
+];
+
+// ===================== 前端状态机 =====================
+let appMode = 'title';          // title | chapters | shop | play
+let runMode = 'story';          // story | endless | avalanche
+let shopTab = 'person';
+let runChapter = 0;
+
+function setScreen(el, on) { if (el) el.classList.toggle('on', on); }
+
+function refreshMenu() {
+  menuStarEl.textContent = String(save.starlight);
+  menuBestEl.textContent = String(Math.floor(save.bestDist));
+  const done = save.cleared.filter(Boolean).length;
+  menuProgEl.textContent = done > 0 ? '已抵达 ' + done + ' / ' + CHAPTERS.length + ' 章' : '第一章 · 未启程';
 }
-introEl.addEventListener('click', begin);
+
+function showTitle() {
+  appMode = 'title';
+  state.started = false;
+  uiEl.classList.remove('show');
+  deadEl.classList.remove('on');
+  setScreen(shopEl, false);
+  setScreen(chapEl, false);
+  setScreen(helpEl, false);
+  setScreen(menuEl, true);
+  hideNarr();
+  if (cutinEl.classList.contains('on')) cutinEl.classList.remove('on');
+  resetRun();
+  refreshMenu();
+}
+
+// ---------- 衣橱 ----------
+const personSvg = (p) => `
+<svg viewBox="0 0 100 100">
+  <ellipse cx="50" cy="88" rx="20" ry="4" fill="rgba(0,0,0,0.28)"/>
+  <ellipse cx="50" cy="70" rx="19" ry="16" fill="var(--coat)"/>
+  <ellipse cx="50" cy="74" rx="11" ry="11" fill="var(--fur)" opacity="0.92"/>
+  <rect x="34" y="54" width="32" height="9" rx="4.5" fill="var(--scarf)"/>
+  <circle cx="50" cy="36" r="21" fill="var(--fur)"/>
+  <path d="M29 36a21 21 0 0 1 42 0z" fill="var(--hat)"/>
+  <rect x="28" y="32" width="44" height="7" rx="3.5" fill="var(--hat)"/>
+  <circle cx="50" cy="13" r="7" fill="var(--fur)"/>
+  <circle cx="36" cy="44" r="4.6" fill="var(--blush)" opacity="0.75"/>
+  <circle cx="64" cy="44" r="4.6" fill="var(--blush)" opacity="0.75"/>
+  <ellipse cx="43" cy="39" rx="2.1" ry="2.6" fill="#33263c"/>
+  <ellipse cx="57" cy="39" rx="2.1" ry="2.6" fill="#33263c"/>
+</svg>`;
+
+const boardSvg = (b) => `
+<svg viewBox="0 0 100 100">
+  <ellipse cx="50" cy="86" rx="24" ry="3.5" fill="rgba(0,0,0,0.25)"/>
+  <g transform="rotate(-24 50 50)">
+    <rect x="12" y="41" width="76" height="17" rx="8.5" fill="var(--board)"/>
+    <rect x="16" y="52" width="68" height="5" rx="2.5" fill="var(--under)"/>
+    <rect x="26" y="45" width="48" height="2.4" rx="1.2" fill="var(--trim)" opacity="0.85"/>
+    <circle cx="50" cy="49.5" r="5.2" fill="var(--under)" opacity="0.9"/>
+    <circle cx="50" cy="49.5" r="2" fill="var(--trim)"/>
+  </g>
+</svg>`;
+
+const hexStr = (n) => '#' + n.toString(16).padStart(6, '0');
+
+function buildSkinGrid() {
+  skinGridEl.innerHTML = '';
+  const list = shopTab === 'person' ? SKIN_PERSON : SKIN_BOARD;
+  const owned = shopTab === 'person' ? save.ownedP : save.ownedB;
+  const eqId = shopTab === 'person' ? save.equipP : save.equipB;
+
+  list.forEach((s, i) => {
+    const isOwned = owned.includes(s.id);
+    const isEq = eqId === s.id;
+    const el = document.createElement('button');
+    el.className = 'skin' + (isEq ? ' equipped' : '') + (isOwned ? '' : ' locked');
+    if (shopTab === 'person') {
+      el.style.cssText = `--hat:${hexStr(s.hat)};--coat:${hexStr(s.coat)};--scarf:${hexStr(s.scarf)};--fur:${hexStr(s.fur)};--blush:${hexStr(s.blush)};--halo:${hexStr(s.coat)}33`;
+      el.innerHTML = `<div class="art">${personSvg(s)}</div>`;
+    } else {
+      el.style.cssText = `--board:${hexStr(s.board)};--under:${hexStr(s.under)};--trim:${hexStr(s.trim)};--halo:${hexStr(s.board)}33`;
+      el.innerHTML = `<div class="art">${boardSvg(s)}</div>`;
+    }
+    const stateTxt = isEq
+      ? '<span class="st ok">穿 着 中</span>'
+      : isOwned
+        ? '<span class="st own">已 拥 有</span>'
+        : `<span class="st"><span class="dot"></span>${s.price}</span>`;
+    el.innerHTML += `<span class="nm">${s.name}</span>${stateTxt}`;
+    el.style.opacity = '0';
+    el.style.animation = `riseIn .6s ${i * 0.05}s ease forwards`;
+    el.addEventListener('click', () => pickSkin(s));
+    skinGridEl.appendChild(el);
+  });
+}
+
+function pickSkin(s) {
+  const isPerson = shopTab === 'person';
+  const owned = isPerson ? save.ownedP : save.ownedB;
+  if (!owned.includes(s.id)) {
+    if (save.starlight < s.price) {
+      shopHintEl.textContent = `星光不够 · 还差 ${s.price - save.starlight}`;
+      shopHintEl.style.color = '#ff9a8a';
+      setTimeout(() => { shopHintEl.style.color = ''; shopHintEl.textContent = '去雪道上多收一点光'; }, 2400);
+      return;
+    }
+    save.starlight -= s.price;
+    owned.push(s.id);
+    showPop('收 进 衣 橱 了');
+  }
+  if (isPerson) save.equipP = s.id; else save.equipB = s.id;
+  persist();
+  applySkin(save.equipP, save.equipB);
+  shopStarEl.textContent = String(save.starlight);
+  menuStarEl.textContent = String(save.starlight);
+  shopHintEl.textContent = '点 击 换 上 · 已 记 住 你 的 选 择';
+  shopHintEl.style.color = '';
+  buildSkinGrid();
+}
+
+function openShop() {
+  appMode = 'shop';
+  setScreen(menuEl, false);
+  setScreen(shopEl, true);
+  uiEl.classList.remove('show');
+  shopStarEl.textContent = String(save.starlight);
+  applySkin(save.equipP, save.equipB);
+  buildSkinGrid();
+  // 相机先贴到角色身边，避免长距离飞行
+  skier.rotation.y = 0;
+  const a0 = -0.7;
+  camPos.set(skier.position.x + Math.cos(a0) * 8.6, skier.position.y + 2.3, skier.position.z + Math.sin(a0) * 8.6);
+  camLook.set(skier.position.x, skier.position.y + 0.9, skier.position.z);
+  camera.fov = 40;
+  camera.updateProjectionMatrix();
+}
+
+// ---------- 章节 ----------
+function buildChapters() {
+  chapWrapEl.innerHTML = '';
+  CHAPTERS.forEach((c, i) => {
+    const unlocked = i <= save.chapter;
+    const el = document.createElement('button');
+    el.className = 'chap' + (unlocked ? '' : ' lock') + (save.cleared[i] ? ' cleared' : '');
+    el.innerHTML = `
+      <div class="no">${c.no}</div>
+      <h3>${c.name}</h3>
+      <div class="ln"></div>
+      <p>${c.sub}</p>
+      <div class="goal">${save.cleared[i] ? '已 抵 达' : unlocked ? `目 标 <b>${c.goal} M</b>` : '尚 未 解 锁'}</div>`;
+    el.style.opacity = '0';
+    el.style.animation = `riseIn .8s ${i * 0.1}s ease forwards`;
+    if (unlocked) el.addEventListener('click', () => startRun('story', i));
+    chapWrapEl.appendChild(el);
+  });
+}
+
+function openChapters() {
+  appMode = 'chapters';
+  setScreen(menuEl, false);
+  setScreen(chapEl, true);
+  buildChapters();
+}
+
+// ---------- 开始 ----------
+function showCutin(ch) {
+  document.getElementById('cuNo').textContent = ch.no;
+  document.getElementById('cuTitle').textContent = ch.name;
+  document.getElementById('cuSub').textContent = ch.sub;
+  cutinEl.classList.add('on');
+  setTimeout(() => cutinEl.classList.remove('on'), 2600);
+}
+
+function startRun(mode, chapterIdx) {
+  runMode = mode;
+  runChapter = mode === 'story' ? (chapterIdx != null ? chapterIdx : save.chapter) : -1;
+
+  setScreen(menuEl, false);
+  setScreen(shopEl, false);
+  setScreen(chapEl, false);
+  setScreen(helpEl, false);
+  deadEl.classList.remove('on');
+
+  resetRun();
+  appMode = 'play';
+  state.chapter = runChapter;
+
+  state.ava.on = mode === 'avalanche' || (mode === 'story' && CHAPTERS[runChapter] && CHAPTERS[runChapter].avalanche);
+  state.ava.wait = mode === 'avalanche' ? 1.6 : 9999;   // 剧情模式到指定距离才启动
+  state.ava.startAt = mode === 'story' && CHAPTERS[runChapter] ? (CHAPTERS[runChapter].avalanche || 0) : 0;
+  state.ava.x = state.x - (mode === 'avalanche' ? 34 : 62);
+  state.ava.gap = mode === 'avalanche' ? 30 : 48;
+
+  uiEl.classList.add('show');
+  menuEl.classList.remove('on');
+  initAudio();
+  setTimeout(() => keysHintEl.classList.remove('fade'), 100);
+  setTimeout(() => keysHintEl.classList.add('fade'), 12000);
+
+  if (mode === 'story') {
+    const ch = CHAPTERS[runChapter];
+    showCutin(ch);
+    storyPtr = 0;
+    setTimeout(() => { if (ch.lines[0]) queueNarr(ch.lines[0].who, ch.lines[0].txt); }, 2300);
+    storyPtr = 1;
+  } else if (mode === 'avalanche') {
+    showPop('雪 崩 来 了　别 停');
+  }
+
+  state.started = true;
+}
+
+function begin() { startRun('story', save.chapter); }
+
+// ---------- 按钮绑定 ----------
+document.getElementById('btnStory').addEventListener('click', () => {
+  initAudio();
+  if (save.chapter > 0 || save.cleared[0]) openChapters();
+  else startRun('story', 0);
+});
+document.getElementById('btnEndless').addEventListener('click', () => { initAudio(); startRun('endless'); });
+document.getElementById('btnAvalanche').addEventListener('click', () => { initAudio(); startRun('avalanche'); });
+document.getElementById('btnShop').addEventListener('click', () => { initAudio(); openShop(); });
+document.getElementById('btnHelp').addEventListener('click', () => setScreen(helpEl, true));
+document.getElementById('helpClose').addEventListener('click', () => setScreen(helpEl, false));
+document.getElementById('shopBack').addEventListener('click', () => { showTitle(); applySkin(save.equipP, save.equipB); });
+document.getElementById('chapBack').addEventListener('click', () => { setScreen(chapEl, false); setScreen(menuEl, true); appMode = 'title'; });
+
+document.querySelectorAll('.shop-tabs .tab').forEach((t) => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.shop-tabs .tab').forEach((x) => x.classList.remove('on'));
+    t.classList.add('on');
+    shopTab = t.dataset.tab;
+    buildSkinGrid();
+  });
+});
+
+document.getElementById('menuBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  deadEl.classList.remove('on');
+  showTitle();
+});
+
+applySkin(save.equipP, save.equipB);
+refreshMenu();
+setScreen(menuEl, true);
 if (isTest) setTimeout(begin, 300);
+
+// 截图测试通道：?shot=menu|shop|chapters|play
+{
+  const shot = new URLSearchParams(location.search).get('shot');
+  if (shot) {
+    document.body.classList.add('shot');
+    bootEl.remove();
+    try {
+      if (shot === 'shop') openShop();
+      else if (shot === 'chapters') openChapters();
+      else if (shot === 'play') startRun('story', 0);
+      else if (shot === 'ava') startRun('avalanche');
+    } catch (err) {
+      document.title = 'ERR: ' + err.message + ' | ' + String(err.stack || '').split('\n').slice(1, 3).join(' ~ ');
+    }
+  }
+}
 
 // 调试：?d=1500 直接跳到指定距离
 {
@@ -1659,8 +2053,7 @@ if (new URLSearchParams(location.search).get('crash') === '1') {
 }
 
 // ===================== 更新：障碍 / 跳台 / 连击 =====================
-let obsCur = 0;
-let rampCur = 0;
+// obsCur / rampCur 已在顶部 state 区声明
 
 function comboToast(label) {
   if (state.combo >= 3 && state.combo % 5 === 0) showPop(label + '　×' + state.combo);
@@ -1759,6 +2152,91 @@ function updateProps(dt) {
       o.done = true;
     }
   }
+}
+
+// ===================== 剧情旁白 / 章节 =====================
+// storyPtr / narrT / crashReason / narrQueue / avaGroup 已在顶部声明
+
+function queueNarr(who, txt) { narrQueue.push({ who, txt }); }
+function hideNarr() {
+  narrQueue.length = 0;
+  narrT = 0;
+  if (narrEl) narrEl.classList.remove('on');
+}
+function updateNarr(dt) {
+  if (narrT > 0) {
+    narrT -= dt;
+    if (narrT <= 0) narrEl.classList.remove('on');
+    return;
+  }
+  if (!narrQueue.length) return;
+  const n = narrQueue.shift();
+  narrWhoEl.textContent = n.who;
+  narrTxtEl.textContent = n.txt;
+  narrEl.classList.add('on');
+  narrT = 4.2 + Math.min(3.6, n.txt.length * 0.062);
+}
+
+function updateStory(dt) {
+  if (runMode !== 'story' || !state.started || state.dead || state.arrived) return;
+  const ch = CHAPTERS[runChapter];
+  if (!ch) return;
+
+  while (storyPtr < ch.lines.length && state.distance >= ch.lines[storyPtr].at) {
+    const l = ch.lines[storyPtr++];
+    queueNarr(l.who, l.txt);
+  }
+  if (!state.chapterDone && state.distance >= ch.goal) arrive(ch);
+}
+
+function arrive(ch) {
+  state.chapterDone = true;
+  state.arrived = true;
+  save.cleared[runChapter] = true;
+  save.chapter = Math.min(CHAPTERS.length - 1, Math.max(save.chapter, runChapter + 1));
+  showPop('抵 达 · ' + ch.name);
+  addCombo(240);
+  for (let i = 0; i < 14; i++) {
+    spawnBurst(state.x + (Math.random() - 0.5) * 6, state.y + 1 + Math.random() * 3, state.z + (Math.random() - 0.5) * 6, 0xffe0b0, 1);
+  }
+  sfxAnimal();
+  setTimeout(() => settle(true), 1900);
+}
+
+// ---------- 雪崩（粒子已在顶部构建） ----------
+function updateAvalanche(dt, t) {
+  const A = state.ava;
+  if (!A.on || !state.started || state.dead || state.arrived) return;
+
+  if (!A.active) {
+    if (runMode !== 'avalanche' && state.distance < A.startAt) { avaGroup.visible = false; return; }
+    A.active = true;
+    A.t = 0;
+    A.x = state.x - 68;
+    avaGroup.visible = true;
+    showPop('雪 崩　来 了');
+    flashScreen();
+  }
+  A.t += dt;
+
+  const want = (runMode === 'avalanche' ? 36 : 48) * Math.max(0.40, 1 - A.t * 0.011);
+  const behind = state.x - A.x;
+  const err = Math.max(-20, Math.min(26, (behind - want) * 0.9));
+  A.x += (state.speed + err) * dt;
+
+  const gy = terrainY(A.x);
+  for (const p of avaPuffs) {
+    const u = p.userData;
+    p.position.set(
+      A.x - u.dx + Math.sin(t * u.sp2 * 2.2 + u.ph) * 2.4,
+      gy + u.dy + Math.sin(t * 1.7 + u.ph) * 1.2,
+      u.dz + Math.cos(t * 1.3 + u.ph) * 2.6
+    );
+    p.material.opacity = 0.16 + 0.32 * (0.5 + 0.5 * Math.sin(t * 2.4 + u.ph));
+    p.scale.setScalar(u.sz * (1 + Math.sin(t * 1.9 + u.ph) * 0.12));
+  }
+
+  if (behind < 6.5) crash('被 雪 埋 住 了');
 }
 
 // ===================== 更新：角色 =====================
@@ -1869,9 +2347,14 @@ function updateSkier(dt, t) {
     shadowMat.opacity = Math.max(0.04, 0.22 - hAbove * 0.028);
   }
 
+  // 极光时刻：角色本身也在发光
+  {
+    const want = state.fx.aurora > 0 ? 0.58 : 0.22;
+    skierGlow.material.opacity += (want - skierGlow.material.opacity) * Math.min(1, dt * 3.5);
+  }
+
   // 围巾飘动
-  const arr = scarfGeo.attributes.position.array;
-  const total = 13;
+  const arr = scarfGeo.attributes.position.array;  const total = 13;
   for (let i = 0; i < arr.length; i += 3) {
     const col = i / 3;
     const u = (col % total) / (total - 1);
@@ -1913,15 +2396,53 @@ function crash(reason) {
     spawnPuff(state.x + (Math.random() - 0.5) * 2.4, state.y + Math.random() * 1.6, state.z + (Math.random() - 0.5) * 2.4);
   }
 
-  setTimeout(() => {
-    dSubEl.textContent = reason || '头 先 着 地 · 没 能 站 稳';
-    dPtsEl.textContent = String(state.points);
-    dDistEl.textContent = String(Math.floor(state.distance));
-    dOrbsEl.textContent = String(state.score);
-    dBuddiesEl.textContent = String(state.buddies);
-    dBestEl.textContent = String(state.best);
-    deadEl.classList.add('on');
-  }, 950);
+  crashReason = reason || '';
+  avaGroup.visible = false;
+  setTimeout(() => settle(false), 950);
+}
+
+// 结算：算星光、存档、更新面板
+function settle(win) {
+  const gain = Math.floor(state.score * 1.5 + state.distance * 0.055 + state.buddies * 9 + (win ? 220 : 0));
+  save.starlight += gain;
+  save.bestDist = Math.max(save.bestDist, Math.floor(state.distance));
+  save.bestPts = Math.max(save.bestPts, state.points);
+  persist();
+
+  dTitleEl.textContent = win ? '抵　达' : '摔　倒 了';
+  dEmEl.textContent = win ? '✦' : '❄';
+  dSubEl.textContent = win
+    ? (CHAPTERS[runChapter] ? CHAPTERS[runChapter].name + ' · 信 送 到 了' : '抵 达 山 脚 · 这 一 程 走 完 了')
+    : (crashReason || '头 先 着 地 · 没 能 站 稳');
+
+  dPtsEl.textContent = String(state.points);
+  dDistEl.textContent = String(Math.floor(state.distance));
+  dOrbsEl.textContent = String(state.score);
+  dBuddiesEl.textContent = String(state.buddies);
+  dBestEl.textContent = String(Math.floor(save.bestDist));
+  dGainEl.textContent = '+' + gain;
+
+  deadEl.classList.add('on');
+  refreshMenu();
+  if (win && save.chapter > runChapter) {
+    setTimeout(() => {
+      if (runMode === 'story') dSubEl.textContent += '　·　下 一 章 已 解 锁';
+    }, 700);
+  }
+}
+
+// 抵达终点：慢慢停下
+function updateArrive(dt, t) {
+  state.speed *= Math.pow(0.16, dt);
+  state.x += state.speed * dt;
+  state.z *= Math.pow(0.25, dt);
+  state.y = terrainY(state.x) + bank(state.z);
+  if (state.speed < 0.6) state.speed = 0;
+  skier.position.set(state.x, state.y, state.z);
+  skier.rotation.z = -Math.atan(terrainSlope(state.x)) * 0.9;
+  skier.rotation.x *= 0.96;
+  state.distance = Math.max(state.distance, state.x);
+  if (state.speed === 0 && Math.random() < 0.04) spawnPuff(state.x, state.y + 0.2, state.z);
 }
 
 function flashScreen() {
@@ -1943,7 +2464,7 @@ function updateDead(dt, t) {
   }
 }
 
-function restart() {
+function resetRun() {
   deadEl.classList.remove('on');
   for (const o of orbs) {
     o.userData.taken = false;
@@ -2004,6 +2525,23 @@ function restart() {
   camPos.set(-11, terrainY(0) + 6, 0);
   camLook.set(14, terrainY(0) + 2, 0);
   hideChip();
+
+  // 剧情 / 雪崩状态
+  state.chapterDone = false;
+  state.arrived = false;
+  state.ava.on = false;
+  state.ava.active = false;
+  state.ava.t = 0;
+  state.fx.aurora = 0;
+  storyPtr = 0;
+  hideNarr();
+  avaGroup.visible = false;  if (dTitleEl) { dTitleEl.textContent = '摔 倒 了'; }
+  if (dEmEl) dEmEl.textContent = '❄';
+}
+
+function restart() {
+  deadEl.classList.remove('on');
+  startRun(runMode, runMode === 'story' ? runChapter : null);
 }
 
 // ===================== 更新：粒子 =====================
@@ -2127,9 +2665,17 @@ function updateOrbs(dt, t) {
           ch.done = true;
           addCombo(95);
           state.boost = Math.min(1, state.boost + 0.14);
-          showPop('光 带 贯 通！');
           spawnBurst(o.position.x, o.position.y, o.position.z, 0xffd8a0, 12);
           sfxAnimal();
+          if (state.distance > DIST_FULL * 0.55 && state.fx.aurora <= 0) {
+            state.fx.aurora = 9;
+            showPop('极 光 降 临　得 分 ×2');
+            for (let k = 0; k < 5; k++) {
+              spawnBurst(state.x + (Math.random() - 0.5) * 8, state.y + 1 + Math.random() * 4, state.z + (Math.random() - 0.5) * 8, 0x9affd8, 3);
+            }
+          } else {
+            showPop('光 带 贯 通！');
+          }
         }
       }
     }
@@ -2137,6 +2683,7 @@ function updateOrbs(dt, t) {
 }
 
 function updateSnow(dt) {
+  snowPts.visible = appMode !== 'shop';
   const arr = snowGeo.attributes.position.array;
   const cx = camPos.x, cy = camPos.y, cz = camPos.z;
   const flow = state.started ? state.speed * 0.42 + 4 : 2;
@@ -2153,13 +2700,88 @@ function updateSnow(dt) {
   snowGeo.attributes.position.needsUpdate = true;
 }
 
-// ===================== 更新：相机（第三人称越肩） =====================
-function updateCamera(dt) {
-  const camClose = location.search.includes('cam=close');
+// ===================== 更新：相机 =====================
+// 标题镜头的电影化轨道（闭合曲线，30 秒一圈）
+const cinePos = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-46, 26, -34),
+  new THREE.Vector3(-26, 14, -26),
+  new THREE.Vector3(-12, 5.2, -14),
+  new THREE.Vector3(-5.0, 3.2, 3.4),
+  new THREE.Vector3(-6.5, 4.2, 9.6),
+  new THREE.Vector3(-20, 7.6, 8.0),
+  new THREE.Vector3(-38, 16, -4),
+], true, 'catmullrom', 0.35);
+const cineLook = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(26, 12, 0),
+  new THREE.Vector3(12, 6, 0),
+  new THREE.Vector3(3, 2.0, 0),
+  new THREE.Vector3(0.2, 1.30, 0),
+  new THREE.Vector3(0, 1.25, 0),
+  new THREE.Vector3(4, 2.0, 0),
+  new THREE.Vector3(16, 6, 0),
+], true, 'catmullrom', 0.35);
+const _cp = new THREE.Vector3();
+const _cl = new THREE.Vector3();
+
+function setFov(target, dt, spd) {
+  const nf = camera.fov + (target - camera.fov) * Math.min(1, dt * (spd || 1.4));
+  if (Math.abs(nf - camera.fov) > 0.03) {
+    camera.fov = nf;
+    camera.updateProjectionMatrix();
+  }
+}
+
+function cinematic(t, dt) {
+  const CYC = 30;
+  const u = (t % CYC) / CYC;
+  cinePos.getPoint(u, _cp);
+  cineLook.getPoint(u, _cl);
+  const bx = skier.position.x, by = skier.position.y, bz = skier.position.z;
+
+  // 手持感：极轻微的漂移
+  _cp.x += Math.sin(t * 0.71) * 0.16;
+  _cp.y += Math.sin(t * 0.53 + 1.2) * 0.11;
+  _cp.z += Math.cos(t * 0.61) * 0.13;
+
+  const tx = bx + _cp.x, ty = by + _cp.y, tz = bz + _cp.z;
+  const k = 1 - Math.pow(0.00008, dt);
+  camPos.x += (tx - camPos.x) * k;
+  camPos.y += (ty - camPos.y) * k;
+  camPos.z += (tz - camPos.z) * k;
+  camLook.x += (bx + _cl.x - camLook.x) * k;
+  camLook.y += (by + _cl.y - camLook.y) * k;
+  camLook.z += (bz + _cl.z - camLook.z) * k;
+
+  // 拉近时收窄视野，更像电影镜头
+  const near = Math.min(1, Math.max(0, 1 - (Math.abs(_cp.x) - 6) / 30));
+  setFov(52 - near * 12, dt, 0.8);
+}
+
+function shopCam(t, dt) {
+  const a = t * 0.20 - 0.7;
+  const R = 8.6;
+  const bx = skier.position.x, by = skier.position.y, bz = skier.position.z;
+  const tx = bx + Math.cos(a) * R;
+  const tz = bz + Math.sin(a) * R;
+  const ty = by + 2.3 + Math.sin(t * 0.55) * 0.16;
+  const k = 1 - Math.pow(0.00004, dt);
+  camPos.x += (tx - camPos.x) * k;
+  camPos.y += (ty - camPos.y) * k;
+  camPos.z += (tz - camPos.z) * k;
+  camLook.x += (bx - camLook.x) * k;
+  camLook.y += (by + 0.9 - camLook.y) * k;
+  camLook.z += (bz - camLook.z) * k;
+
+  skier.rotation.y = Math.sin(t * 0.42) * 0.55;
+  skierGlow.material.opacity += (0.05 - skierGlow.material.opacity) * Math.min(1, dt * 4);
+  setFov(40, dt, 1.6);
+}
+
+function playCam(dt) {
   const spd = state.started && !state.dead ? state.speed : 8;
   const deadK = state.dead ? Math.min(1, state.deadT * 1.1) : 0;
-  const back = (camClose ? 3.6 : 9.2 + spd * 0.070) + (state.air ? 0.8 : 0) + deadK * 3.4;
-  const up = (camClose ? 1.9 : 4.9 + spd * 0.030) + deadK * 1.5;
+  const back = 9.2 + spd * 0.070 + (state.air ? 0.8 : 0) + deadK * 3.4;
+  const up = 4.9 + spd * 0.030 + deadK * 1.5;
 
   const tx = state.x - back;
   const ty = state.y + up;
@@ -2170,7 +2792,6 @@ function updateCamera(dt) {
   camPos.y += (ty - camPos.y) * k;
   camPos.z += (tz - camPos.z) * k;
 
-  // 视线目标：角色前方，稍微高一点看路
   const lx = state.x + 14 + spd * 0.20;
   const ly = state.y + 0.8 - deadK * 0.5;
   const lz = state.z * 0.85;
@@ -2179,16 +2800,16 @@ function updateCamera(dt) {
   camLook.y += (ly - camLook.y) * lk;
   camLook.z += (lz - camLook.z) * lk;
 
+  setFov(60 + Math.min(16, spd * 0.26) - deadK * 4, dt, 1.6);
+}
+
+function updateCamera(dt, t) {
+  if (appMode === 'title' || appMode === 'chapters' || appMode === 'boot') cinematic(t, dt);
+  else if (appMode === 'shop') shopCam(t, dt);
+  else playCam(dt);
+
   camera.position.copy(camPos);
   camera.lookAt(camLook);
-
-  // 速度带来的视野扩张（摔倒时轻轻收窄）
-  const targetFov = 60 + Math.min(16, spd * 0.26) - deadK * 4;
-  const nf = camera.fov + (targetFov - camera.fov) * Math.min(1, dt * 1.6);
-  if (Math.abs(nf - camera.fov) > 0.04) {
-    camera.fov = nf;
-    camera.updateProjectionMatrix();
-  }
 
   // 天空/星跟随
   skyDome.position.copy(camPos);
@@ -2214,7 +2835,10 @@ const cC = new THREE.Color();
 const cD = new THREE.Color();
 
 function updateSky(t) {
-  const p = Math.min(1, state.distance / DIST_FULL);
+  const inRun = appMode === 'play' || appMode === 'shop';
+  const p = inRun
+    ? Math.min(1, state.distance / DIST_FULL)
+    : 0.05 + 0.46 * (0.5 + 0.5 * Math.sin(t * 0.045 - 1.2));
   let i = 0;
   while (i < PHASES.length - 2 && p > PHASES[i + 1].t) i++;
   const a = PHASES[i], b = PHASES[i + 1] || PHASES[i];
@@ -2226,7 +2850,9 @@ function updateSky(t) {
   skyUniforms.uBot.value.copy(cA.setHex(a.bot)).lerp(cB.setHex(b.bot), f);
 
   const night = Math.min(1, Math.max(0, (p - 0.22) / 0.46));
-  const aurora = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+  let aurora = Math.min(1, Math.max(0, (p - 0.72) / 0.28));
+  // 极光时刻：整片天幕压下来
+  if (state.fx.aurora > 0) aurora = Math.min(1, aurora + 0.42);
   skyUniforms.uNight.value = night;
   skyUniforms.uAurora.value = aurora;
   skyUniforms.uTime.value = t;
@@ -2325,11 +2951,16 @@ function animate() {
 
   if (state.dead) {
     updateDead(dt, elapsed);
+  } else if (state.arrived) {
+    updateArrive(dt, elapsed);
+    updateAnimals(dt, elapsed);
   } else if (state.started) {
     updateSkier(dt, elapsed);
     updateProps(dt);
     updateOrbs(dt, elapsed);
     updateAnimals(dt, elapsed);
+    updateStory(dt);
+    updateAvalanche(dt, elapsed);
     if (audio.ready && audio.windGain) {
       const target = 0.010 + Math.min(0.055, state.speed * 0.0016);
       audio.windGain.gain.value += (target - audio.windGain.gain.value) * Math.min(1, dt * 2);
@@ -2340,10 +2971,11 @@ function animate() {
     updateAnimals(dt, elapsed);
   }
 
+  updateNarr(dt);
   updatePuffs(dt);
   updateSparks(dt);
   updateSnow(dt);
-  updateCamera(dt);
+  updateCamera(dt, elapsed);
   updateSky(elapsed);
   updateUI(dt);
 
